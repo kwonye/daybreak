@@ -1,0 +1,107 @@
+# Daybreak
+
+A local macOS update coordinator for the apps that are running when the daily job starts. It checks supported updaters, applies updates, gracefully closes/reopens apps when needed, and verifies that fresh processes launched from the installed bundles.
+
+**Dry-run is the default. This is a conservative v0.1, not a universal updater.** There is no supported universal external API for every Sparkle or Electron application. Unsupported apps can be restarted to activate updates they already downloaded, but are explicitly reported as `restart_only_unverified`.
+
+## Quick start
+
+Requires macOS, Python 3.11+, and Xcode Command Line Tools (for the small AppKit helper). There are no Python runtime dependencies. Run from the checkout; the compiled helper is local and is not distributed as a signed/notarized binary.
+
+```sh
+./scripts/build.sh
+./scripts/daybreak inventory
+./scripts/daybreak run --dry-run
+```
+
+A dry-run reads app/process metadata and local installed-cask metadata. It **does not** invoke an updater, make network requests, quit/relaunch apps, or write run state. If the environment cannot enumerate running apps, it fails instead of reporting an empty successful run.
+
+To configure, copy `examples/config.example.json` outside the repository, edit it, then preview again:
+
+```sh
+mkdir -p "$HOME/.config/daybreak"
+cp examples/config.example.json "$HOME/.config/daybreak/config.json"
+./scripts/daybreak run --dry-run --config "$HOME/.config/daybreak/config.json"
+```
+
+To actually interrupt and update the running apps:
+
+```sh
+./scripts/daybreak run --apply --config "$HOME/.config/daybreak/config.json"
+```
+
+Use `--only com.google.Chrome` (repeatable) to limit a run. Do not run as root. The process must run in the logged-in user's GUI session and have permission to enumerate/terminate apps. It does not request Accessibility access or change macOS permissions. Restricted execution environments may need their supported approval mechanism; do not work around access denials.
+
+## What works
+
+| Backend | Behavior | Prerequisites / limits |
+| --- | --- | --- |
+| Chrome | Uses Google's documented `ksadmin --install --productid com.google.Chrome --user-store` compatibility API, then relaunches | Existing user-scope Google updater and exact Chrome registration must match. No updater installation, system scope, or update-all command |
+| Sparkle | Official external Sparkle CLI probes, installs, then coordinator relaunches | Supply `sparkle_cli`; app must expose a compatible feed/configuration. No feed overrides, signature bypass, automatic major-upgrade opt-in, or internal Autoupdate/ShipIt invocation |
+| Homebrew cask | Checks/upgrades one existing managed cask | Exact `/Applications` app path must match installed JSON cask metadata. No automatic adoption, reinstall, bulk or greedy updates. Legacy Ruby metadata/custom app directories require an explicit adapter |
+| Mac App Store | Optional `mas outdated` / `mas update ID` | User-installed `mas`, App Store receipt, explicit numeric `app_id`, signed-in account. `mas` is third-party, not an Apple API. It may need user interaction; no sudo or automatic dependency install |
+| Docker Desktop | Native `docker desktop update --quiet`, fresh-process check, then engine health check | Explicit `allow_workload_interruption: true`. Containers, Kubernetes and VM workloads can stop. Docker's command has no stable machine-readable availability response |
+| Electron / Squirrel / unknown | Graceful restart to apply a vendor-staged update | No generic external update API. Latest-release availability is unknown unless a supported command adapter is configured |
+
+By default, apps reported current are still gracefully restarted, and unsupported apps get a restart-only attempt. This matches an interrupt-at-08:00 workflow and covers updates activated on next launch. Set `restart_current` or `restart_unmanaged` to `false` to narrow that behavior.
+
+System apps, nested helper apps, updater services, OpenAI host/control apps, and Tailscale networking apps are protected and never quit. User exclusions are additive. No cloud automation or LaunchAgent is created or modified by this repository.
+
+## Safety and honest verification
+
+- Takes one initial running-app snapshot; never starts an app that was not running. If it stops before its turn, it is skipped.
+- Requests normal AppKit termination and waits. Save prompts, quit refusals and timeouts defer the app. **Never force-quits, sends kill signals, dismisses save dialogs, or reboots.**
+- Graceful quit is **not a guarantee against data loss**. Browser forms, incognito sessions, meetings and app-specific state may still be lost. Reopening a browser does not guarantee tab/session restoration. Configure exclusions if necessary.
+- Updates must preserve a valid developer signing team and bundle ID. Invalid signatures block relaunch; changing publishers requires manual review.
+- After an installer failure, only requests recovery launch if the app is absent and its signature still verifies. On installer timeout, completion is uncertain and no automatic reopen/retry is attempted.
+- Success requires fresh PID/start time, expected executable path, current bundle version and fingerprint. Command success alone is not enough. This verifies **“relaunched installed version”**, not a direct measurement of arbitrary in-memory application versions, nor proof that no newer release exists.
+- Isolates each app's failure, runs sequentially, locks overlapping jobs, writes private JSON reports, and suppresses arbitrary updater stdout/stderr from reports to reduce accidental sensitive logging.
+
+The current process may already be older than its bundle on disk. Daybreak compares mapped executable inode with current disk inode when `lsof` can establish that fact. Lack of that signal is not proof of freshness; the default fresh-process relaunch handles that case.
+
+## Daily 08:00 Pacific integration
+
+Use the **existing** daily cloud automation to invoke this on the Mac. Do not create a second schedule:
+
+```sh
+cd "$HOME/Developer/github/kwonye/daybreak"
+/opt/homebrew/bin/python3 -m daybreak run --apply --due \
+  --config "$HOME/.config/daybreak/config.json"
+```
+
+Use the actual checkout and Python paths on your machine. The gate uses `America/Los_Angeles`, so DST follows Pacific wall time. It allows one run per local calendar date at or after 08:00. A late same-day invocation catches up; it does not wake a sleeping Mac, run while logged out, or replay missed days. The existing scheduler remains responsible for invoking the command.
+
+The date is consumed **before work starts** to avoid repeated interruptions after a crash. Failures are not automatically retried that day. Inspect the report and use a manually targeted `--apply --only ...` without `--due` when safe. Dry-run never consumes the date. Keep one consistent state directory across triggers.
+
+No real update or daily schedule installation is performed by building/testing this project.
+
+## Reports and exit codes
+
+```sh
+./scripts/daybreak status
+```
+
+Default private state: `~/Library/Application Support/Daybreak/`.
+
+- `latest.json`: last actual run
+- `runs/*.json`: last 30 runs
+- `schedule.json`: daily gate; `run.lock`: overlap lock
+- stdout: full JSON report (inventory includes local app paths; treat it as private)
+
+Status values distinguish `updated_and_relaunched`, `checked_and_relaunched`, `restart_only_unverified`, `current`, `deferred`, `blocked`, `failed`, `uncertain`, `unsupported`, `skipped`, `excluded`, and dry-run `planned`.
+
+Exit 0 means no attention state was reported (not “everything is latest”). Exit 2 means one or more apps need attention or have unverified update coverage. Exit 1 means setup/configuration/inventory failed. Dry-run may return 2 to expose blocked configuration such as Docker's missing workload opt-in.
+
+## Configuration and extending
+
+See [configuration](docs/configuration.md), [architecture](docs/architecture.md), and [sources](docs/sources.md). Secrets, local configuration, inventories and reports must not be committed.
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q daybreak tests
+./scripts/build.sh
+# Optional: launches and restarts ONLY a disposable test fixture app.
+python3 tests/native_smoke.py --run
+```
+
+Tests cover safety failures, backend commands, DST, idempotency, locking and configuration. The opt-in macOS smoke test verifies real AppKit quit/relaunch/PID replacement using an app created for the test; it does not update your installed apps.

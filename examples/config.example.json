@@ -1,0 +1,14 @@
+{
+  "timezone": "America/Los_Angeles",
+  "hour": 8,
+  "quit_timeout_seconds": 60,
+  "restart_current": true,
+  "restart_unmanaged": true,
+  "exclude": [],
+  "apps": {
+    "com.docker.docker": {
+      "backend": "docker",
+      "allow_workload_interruption": false
+    }
+  }
+}
