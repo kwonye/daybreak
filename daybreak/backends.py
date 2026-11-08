@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import time
 from .models import Check
 from .platform import CommandError
 
@@ -69,7 +70,13 @@ class Docker(Backend):
     def apply(self, app):
         self.runner.checked([self.executable, 'desktop', 'update', '--quiet'], 1200)
     def health(self, app):
-        self.runner.checked([self.executable, 'info', '--format', '{{.ServerVersion}}'], 90)
+        until = time.monotonic() + 90
+        while time.monotonic() < until:
+            result = self.runner.run([self.executable, 'info', '--format', '{{.ServerVersion}}'], 10)
+            if result.returncode == 0 and result.stdout.strip():
+                return
+            time.sleep(1)
+        raise CommandError('Docker GUI relaunched but engine did not become ready')
 
 class Google(Backend):
     name = 'google'

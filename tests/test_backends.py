@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from daybreak.backends import Sparkle, Google, Brew, MAS, CommandAdapter, Registry
+from daybreak.backends import Sparkle, Google, Brew, MAS, Docker, CommandAdapter, Registry
 from daybreak.models import App
 from daybreak.platform import CommandError, executable_is_stale
 
@@ -28,6 +28,11 @@ class BackendTests(unittest.TestCase):
     def test_empty_inventory_fails_closed(self):
         from daybreak.platform import Mac
         with self.assertRaises(CommandError): Mac('/bridge', Runner(output='[]')).records()
+    def test_docker_waits_for_engine_readiness(self):
+        runner=Runner()
+        with patch.object(runner, 'run', side_effect=[subprocess.CompletedProcess([],1,'',''), subprocess.CompletedProcess([],0,'29.0','')]) as call, patch('daybreak.backends.time.sleep'):
+            Docker(runner,'/docker').health(APP)
+            self.assertEqual(call.call_count,2)
     def test_sparkle_exit_semantics(self):
         for code, state in [(0,'available'),(4,'current')]:
             runner=Runner(code)
