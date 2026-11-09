@@ -16,6 +16,7 @@ class App:
     fingerprint: str = ''
     hints: tuple[str, ...] = ()
     stale: bool = False
+    executable_source: str = ''
 
     def to_dict(self):
         return asdict(self)
@@ -26,6 +27,11 @@ class Check:
     target: str = ''
     detail: str = ''
 
+@dataclass(frozen=True)
+class InstallResult:
+    state: str  # completed or no_update
+    detail: str = ''
+
 @dataclass
 class Result:
     bundle_id: str
@@ -34,6 +40,9 @@ class Result:
     backend: str = ''
     before: str = ''
     after: str = ''
+    before_build: str = ''
+    after_build: str = ''
+    update_outcome: str = ''
     detail: str = ''
     old_pids: list[int] = field(default_factory=list)
     new_pids: list[int] = field(default_factory=list)

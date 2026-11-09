@@ -1,6 +1,6 @@
 """One pipeline for all updater families: check, install, relaunch, verify."""
 import time
-from .models import Result, protected
+from .models import InstallResult, Result, protected
 from .platform import CommandError, CommandTimeout
 
 class Coordinator:
@@ -9,7 +9,7 @@ class Coordinator:
 
     def handle(self, app, apply=False):
         result = Result(app.bundle_id, app.name, 'planned', before=app.version,
-                        old_pids=list(app.pids))
+                        old_pids=list(app.pids), before_build=app.build)
         if protected(app) or app.bundle_id in self.config.get('exclude', []):
             result.status, result.detail = 'excluded', 'Protected host/system app or configured exclusion'
             return result
@@ -52,7 +52,10 @@ class Coordinator:
                 recovery_needed = True
             if check.state == 'available':
                 install_started = True
-                backend.apply(app)
+                outcome = backend.apply(app)
+                if isinstance(outcome, InstallResult):
+                    result.update_outcome = outcome.state
+                    result.detail = outcome.detail
                 self.mac.check_signature(app, signer)
             # A native updater might relaunch; ensure old processes are actually gone.
             if any(row['pid'] in app.pids for row in self.mac.current(app)):
@@ -63,13 +66,17 @@ class Coordinator:
                 self.mac.relaunch(app)
             metadata, pids = self.mac.verify(app, started, check.target)
             result.after, result.new_pids = metadata['version'], pids
-            result.verification = 'Fresh PID and launch time, exact executable path, and installed bundle version (not in-memory version introspection)'
+            result.after_build = metadata['build']
+            result.verification = 'Fresh primary PID and launch time, verified executable path, and installed bundle version (not in-memory version introspection)'
             if hasattr(backend, 'health'):
                 backend.health(app)
             changed = (metadata['version'], metadata['build'], metadata['fingerprint']) != (app.version, app.build, app.fingerprint)
             if check.state == 'unknown':
                 result.status = 'restart_only_unverified'
                 result.detail = 'Staged updates may have applied; latest-version availability is unknown'
+            elif result.update_outcome == 'no_update':
+                result.status = 'checked_and_relaunched'
+                result.detail += '; app relaunched and verified, no upgrade claimed'
             elif changed:
                 result.status = 'updated_and_relaunched'
             else:

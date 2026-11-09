@@ -54,8 +54,12 @@ System apps, nested helper apps, updater services, OpenAI host/control apps, and
 - Graceful quit is **not a guarantee against data loss**. Browser forms, incognito sessions, meetings and app-specific state may still be lost. Reopening a browser does not guarantee tab/session restoration. Configure exclusions if necessary.
 - Updates must preserve a valid developer signing team and bundle ID. Invalid signatures block relaunch; changing publishers requires manual review.
 - After an installer failure, only requests recovery launch if the app is absent and its signature still verifies. On installer timeout, completion is uncertain and no automatic reopen/retry is attempted.
-- Success requires fresh PID/start time, expected executable path, current bundle version and fingerprint. Command success alone is not enough. This verifies **“relaunched installed version”**, not a direct measurement of arbitrary in-memory application versions, nor proof that no newer release exists.
+- Success requires a fresh primary PID/start time, verified executable path, current bundle version and fingerprint. New auxiliary processes sharing the bundle ID are not mistaken for the main executable, but any original PID still present blocks verification. Command success alone is not enough. This verifies **“relaunched installed version”**, not a direct measurement of arbitrary in-memory application versions, nor proof that no newer release exists.
 - Isolates each app's failure, runs sequentially, locks overlapping jobs, writes private JSON reports, and suppresses arbitrary updater stdout/stderr from reports to reduce accidental sensitive logging.
+
+When a vendor omits `CFBundleExecutable`, Daybreak uses only a unique executable observed by macOS inside that bundle’s `Contents/MacOS` directory. It does not guess from directory contents, accept escaping symlinks, or silently switch to a helper after updating.
+
+Sparkle exit 4 during installation means no update is available at that point. Daybreak still verifies the signature and relaunch, reports `checked_and_relaunched`, and does not claim an upgrade.
 
 The current process may already be older than its bundle on disk. Daybreak compares mapped executable inode with current disk inode when `lsof` can establish that fact. Lack of that signal is not proof of freshness; the default fresh-process relaunch handles that case.
 
@@ -83,7 +87,7 @@ No real update or daily schedule installation is performed by building/testing t
 
 Default private state: `~/Library/Application Support/Daybreak/`.
 
-- `latest.json`: last actual run
+- `latest.json`: last actual run, including before/after versions and builds, primary PIDs, and updater outcome
 - `runs/*.json`: last 30 runs
 - `schedule.json`: daily gate; `run.lock`: overlap lock
 - stdout: full JSON report (inventory includes local app paths; treat it as private)
@@ -94,7 +98,7 @@ Exit 0 means no attention state was reported (not “everything is latest”). E
 
 ## Configuration and extending
 
-See [configuration](docs/configuration.md), [architecture](docs/architecture.md), and [sources](docs/sources.md). Secrets, local configuration, inventories and reports must not be committed.
+See [configuration](docs/configuration.md), [architecture](docs/architecture.md), [troubleshooting](docs/troubleshooting.md), and [sources](docs/sources.md). Secrets, local configuration, inventories and reports must not be committed.
 
 ```sh
 python3 -m unittest discover -s tests -v

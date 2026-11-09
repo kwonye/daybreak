@@ -33,14 +33,45 @@ class Runner:
         return result.stdout
 
 
-def bundle_metadata(path):
+def _safe_executable(root, candidate, *, observed=False):
+    """Resolve a real executable within this bundle, never an escaping symlink."""
+    try:
+        path = Path(candidate)
+        if not path.is_absolute():
+            return ''
+        root_real = root.resolve(strict=True)
+        executable = path.resolve(strict=True)
+        executable.relative_to(root_real / 'Contents')
+        if observed and executable.parent != (root_real / 'Contents/MacOS').resolve(strict=True):
+            return ''
+        if not executable.is_file() or not os.access(executable, os.X_OK):
+            return ''
+        return str(executable)
+    except (OSError, TypeError, ValueError, RuntimeError):
+        return ''
+
+
+def bundle_metadata(path, observed_executables=()):
     root = Path(path)
     with (root / 'Contents/Info.plist').open('rb') as handle:
         info = plistlib.load(handle)
-    executable = root / 'Contents/MacOS' / info.get('CFBundleExecutable', '')
+    declared = info.get('CFBundleExecutable')
+    executable, source = '', 'unresolved'
+    if isinstance(declared, str) and declared and declared not in ('.', '..') and Path(declared).name == declared:
+        executable = _safe_executable(root, root / 'Contents/MacOS' / declared)
+        if executable:
+            source = 'plist'
+    elif declared in (None, ''):
+        # Some vendor bundles omit CFBundleExecutable. Use only a unique executable
+        # observed by AppKit, confined to this bundle's MacOS directory. Never guess.
+        candidates = {_safe_executable(root, item, observed=True) for item in observed_executables}
+        candidates.discard('')
+        if len(candidates) == 1:
+            executable = candidates.pop()
+            source = 'running-process'
     fingerprint = ''
-    if executable.is_file():
-        with executable.open('rb') as handle:
+    if executable:
+        with Path(executable).open('rb') as handle:
             fingerprint = hashlib.file_digest(handle, 'sha256').hexdigest()
     hints = []
     if (root / 'Contents/Frameworks/Sparkle.framework').exists():
@@ -52,8 +83,17 @@ def bundle_metadata(path):
     if (root / 'Contents/_MASReceipt/receipt').exists():
         hints.append('app-store')
     return dict(version=str(info.get('CFBundleShortVersionString', '')),
-                build=str(info.get('CFBundleVersion', '')), executable=str(executable),
-                fingerprint=fingerprint, hints=tuple(hints))
+                build=str(info.get('CFBundleVersion', '')), executable=executable,
+                fingerprint=fingerprint, hints=tuple(hints), executable_source=source)
+
+
+def same_executable(observed, expected):
+    if not observed or not expected:
+        return False
+    try:
+        return Path(observed).resolve(strict=True) == Path(expected).resolve(strict=True)
+    except (OSError, TypeError, ValueError, RuntimeError):
+        return False
 
 
 def executable_is_stale(output, executable):
@@ -92,7 +132,7 @@ class Mac:
         apps = []
         for (bundle_id, path), rows in sorted(groups.items()):
             try:
-                data = bundle_metadata(path)
+                data = bundle_metadata(path, [row['executable'] for row in rows])
             except (OSError, plistlib.InvalidFileException):
                 continue
             stale = False
@@ -129,17 +169,27 @@ class Mac:
         until = time.monotonic() + self.launch_timeout
         while time.monotonic() < until:
             rows = self.current(app)
-            if rows and all(row['pid'] not in app.pids and row['launched'] >= before_install - 1 for row in rows):
-                metadata = bundle_metadata(app.path)
+            # Original helpers must also be gone, but new auxiliaries do not stand
+            # in for the main executable and may legitimately have no launch date.
+            if rows and not any(row['pid'] in app.pids for row in rows):
+                metadata = bundle_metadata(app.path, [app.executable])
+                if not metadata['executable'] or not metadata['fingerprint']:
+                    raise CommandError('Cannot resolve a unique executable within the app bundle')
+                primary = [row for row in rows if same_executable(row['executable'], metadata['executable'])]
+                fresh = primary and all(isinstance(row.get('launched'), (int, float))
+                                        and row['launched'] >= before_install - 1 for row in primary)
                 expected = not target or target in (metadata['version'], metadata['build'])
-                correct_paths = all(row['executable'] == metadata['executable'] for row in rows)
-                if expected and correct_paths and metadata['fingerprint']:
-                    return metadata, [r['pid'] for r in rows]
+                if fresh and expected:
+                    return metadata, [row['pid'] for row in primary]
             time.sleep(0.5)
-        raise CommandError('Fresh process/path/version verification timed out')
+        raise CommandError('Fresh primary process/path/version verification timed out')
 
     def signer(self, app):
-        self.runner.checked(['/usr/bin/codesign', '--verify', '--deep', '--strict', app.path], 120)
+        verification = self.runner.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app.path], 120)
+        if verification.returncode:
+            if 'resource fork, Finder information, or similar detritus not allowed' in verification.stderr:
+                raise CommandError('Strict signature verification blocked by Finder/resource metadata; no metadata was removed')
+            raise CommandError(f'Strict signature verification failed (codesign exited {verification.returncode})')
         result = self.runner.run(['/usr/bin/codesign', '-dv', '--verbose=4', app.path], 30)
         team = next((line.split('=', 1)[1] for line in result.stderr.splitlines()
                      if line.startswith('TeamIdentifier=')), '')

@@ -40,6 +40,12 @@ class BackendTests(unittest.TestCase):
             self.assertNotIn('--check-immediately',runner.calls[0])
         for code in [1,2,3,5,6,8]:
             with self.assertRaises(CommandError): Sparkle(Runner(code),'/sparkle').check(APP)
+    def test_sparkle_install_no_update_is_normal_outcome(self):
+        self.assertEqual(Sparkle(Runner(4), '/sparkle').apply(APP).state, 'no_update')
+        self.assertEqual(Sparkle(Runner(0), '/sparkle').apply(APP).state, 'completed')
+        for code in (1, 2, 3, 5, 6, 8):
+            with self.subTest(code=code), self.assertRaises(CommandError):
+                Sparkle(Runner(code), '/sparkle').apply(APP)
     def test_sparkle_install_flags(self):
         runner=Runner(); Sparkle(runner,'/sparkle').apply(APP)
         self.assertIn('--check-immediately',runner.calls[0])

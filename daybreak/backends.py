@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import shutil
 import time
-from .models import Check
+from .models import Check, InstallResult
 from .platform import CommandError
 
 class Backend:
@@ -28,7 +28,12 @@ class Sparkle(Backend):
             return Check('current', detail='Sparkle reports no update')
         raise CommandError(f'Sparkle probe exited {result.returncode}; needs attention')
     def apply(self, app):
-        self.runner.checked([self.executable, app.path, '--check-immediately', '--user-agent-name', 'Daybreak'], 900)
+        result = self.runner.run([self.executable, app.path, '--check-immediately', '--user-agent-name', 'Daybreak'], 900)
+        if result.returncode == 4:
+            return InstallResult('no_update', 'Sparkle reported no update at install time')
+        if result.returncode != 0:
+            raise CommandError(f'Sparkle install exited {result.returncode}; needs attention')
+        return InstallResult('completed')
 
 class Brew(Backend):
     name = 'homebrew'

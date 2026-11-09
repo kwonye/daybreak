@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 from daybreak.coordinator import Coordinator
-from daybreak.models import App, Check
+from daybreak.models import App, Check, InstallResult
 from daybreak.platform import CommandError, Mac
 
 
@@ -80,6 +80,33 @@ class CoordinatorTests(unittest.TestCase):
         self.mac.check_signature.assert_called_once_with(self.app, 'TEAM')
         self.mac.relaunch.assert_called_once_with(self.app)
         self.assertEqual(self.mac.verify.call_args.args[2], '2.0')
+
+    def test_sparkle_no_update_still_verifies_signature_and_relaunch(self):
+        self.backend.check.return_value = Check('available')
+        self.backend.apply.return_value = InstallResult('no_update', 'Sparkle reported no update at install time')
+        self.mac.verify.return_value = ({'version': '1.0', 'build': '100', 'fingerprint': 'old'}, [2002])
+        result = self.handle()
+        self.assertEqual(result.status, 'checked_and_relaunched')
+        self.assertEqual(result.update_outcome, 'no_update')
+        self.assertEqual((result.before_build, result.after_build), ('100', '100'))
+        self.assertIn('no upgrade claimed', result.detail)
+        self.mac.check_signature.assert_called_once_with(self.app, 'TEAM')
+        self.mac.relaunch.assert_called_once_with(self.app)
+        self.mac.verify.assert_called_once()
+
+    def test_no_update_does_not_claim_installer_upgraded_changed_bundle(self):
+        self.backend.apply.return_value = InstallResult('no_update', 'No update')
+        result = self.handle()
+        self.assertEqual(result.status, 'checked_and_relaunched')
+        self.assertEqual(result.after, '2.0')
+
+    def test_no_update_never_ignores_signature_failure(self):
+        self.backend.apply.return_value = InstallResult('no_update', 'No update')
+        self.mac.check_signature.side_effect = CommandError('Signature invalid')
+        self.mac.current.side_effect = [[{'pid': 1001}], []]
+        result = self.handle()
+        self.assertEqual(result.status, 'failed')
+        self.mac.relaunch.assert_not_called()
 
     def test_install_failure_attempts_safe_reopen(self):
         self.backend.apply.side_effect = CommandError('installer failed')
