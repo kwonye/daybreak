@@ -17,3 +17,19 @@ jobs:
       - run: python -m compileall -q daybreak tests
       - if: runner.os == 'macOS'
         run: ./scripts/build.sh
+  mac-app:
+    # Pinned image and Xcode so the Swift 6 toolchain and Swift Testing are known quantities.
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version && swift --version
+      - name: Build and test the SwiftUI app
+        working-directory: app
+        run: |
+          swift build
+          swift test
+      - name: Assemble the app bundle (universal, ad-hoc signed)
+        run: ./scripts/build-app.sh
+      - run: codesign --verify --strict --verbose=2 .build/Daybreak.app

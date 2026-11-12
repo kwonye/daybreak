@@ -7,7 +7,8 @@ import sys
 from zoneinfo import ZoneInfo
 from .backends import Registry
 from .coordinator import Coordinator
-from .config import validate
+from .config import validate, whitelisted
+from .models import protected
 from .platform import Mac, Runner, CommandError
 from .state import DEFAULT_ZONE, due, load_json, locked, save_report, write_json
 
@@ -26,6 +27,8 @@ def parser():
     p.add_argument('--state-dir', type=Path, default=DEFAULT_STATE)
     p.add_argument('--bridge', type=Path, default=ROOT / '.build/appbridge')
     p.add_argument('--only', action='append', default=[], metavar='BUNDLE_ID')
+    p.add_argument('--skip', action='append', default=[], metavar='BUNDLE_ID_OR_PATTERN',
+                   help='Whitelist an app or glob for this run only (repeatable)')
     return p
 
 
@@ -42,10 +45,17 @@ def main(argv=None):
         if not args.bridge.is_file():
             raise RuntimeError('Native helper missing; run ./scripts/build.sh first')
         config = load_json(args.config, {}) if args.config else {}
+        config = {**config, 'whitelist': [*config.get('whitelist', []), *args.skip]} if args.skip else config
         validate(config)
         mac = Mac(args.bridge, quit_timeout=config.get('quit_timeout_seconds', 60))
         if args.command == 'inventory':
-            print(json.dumps([a.to_dict() for a in mac.inventory()], indent=2))
+            rows = []
+            for app in mac.inventory():
+                row = app.to_dict()
+                if args.config:
+                    row['whitelisted'], row['protected'] = whitelisted(app.bundle_id, config), protected(app)
+                rows.append(row)
+            print(json.dumps(rows, indent=2))
             return 0
         def execute():
             now = datetime.now(timezone.utc)

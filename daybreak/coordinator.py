@@ -1,5 +1,6 @@
 """One pipeline for all updater families: check, install, relaunch, verify."""
 import time
+from .config import whitelisted
 from .models import InstallResult, Result, protected
 from .platform import CommandError, CommandTimeout
 
@@ -10,8 +11,11 @@ class Coordinator:
     def handle(self, app, apply=False):
         result = Result(app.bundle_id, app.name, 'planned', before=app.version,
                         old_pids=list(app.pids), before_build=app.build)
-        if protected(app) or app.bundle_id in self.config.get('exclude', []):
-            result.status, result.detail = 'excluded', 'Protected host/system app or configured exclusion'
+        if protected(app):
+            result.status, result.detail = 'excluded', 'Protected host/system app'
+            return result
+        if whitelisted(app.bundle_id, self.config):
+            result.status, result.detail = 'excluded', 'Whitelisted by configuration'
             return result
         spec = self.config.get('apps', {}).get(app.bundle_id, {})
         # Docker workload safety also applies to fallback restart-only mode.

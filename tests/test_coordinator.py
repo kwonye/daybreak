@@ -51,6 +51,24 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(self.handle({'exclude': [self.app.bundle_id]}).status, 'excluded')
         self.registry.for_app.assert_not_called()
 
+    def test_whitelist_exact_glob_and_exclude_union_skip_before_probing(self):
+        for config in [{'whitelist': [self.app.bundle_id]}, {'whitelist': ['org.example.*']},
+                       {'exclude': ['org.example.Editor']}, {'whitelist': ['x.y'], 'exclude': ['org.*']}]:
+            for apply in [True, False]:
+                with self.subTest(config=config, apply=apply):
+                    result = self.handle(config, apply=apply)
+                    self.assertEqual((result.status, result.detail), ('excluded', 'Whitelisted by configuration'))
+        self.registry.for_app.assert_not_called()
+        self.assertEqual(self.mac.mock_calls, [])
+
+    def test_whitelist_is_case_sensitive_and_non_matching_runs(self):
+        self.assertEqual(self.handle({'whitelist': ['ORG.example.*', 'org.other.*']}, apply=False).status, 'planned')
+
+    def test_whitelist_never_unprotects_protected_apps(self):
+        app = replace(self.app, bundle_id='com.openai.codex')
+        result = self.handle({'whitelist': ['com.openai.*']}, app=app)
+        self.assertEqual((result.status, result.detail), ('excluded', 'Protected host/system app'))
+
     def test_docker_without_workload_opt_in_is_blocked_even_restart_only(self):
         app = replace(self.app, bundle_id='com.docker.docker')
         self.assertEqual(self.handle(app=app).status, 'blocked')
@@ -193,6 +211,13 @@ class CoordinatorTests(unittest.TestCase):
         self.registry.for_app.side_effect = [CommandError('unsupported'), self.backend]
         results = Coordinator(self.mac, self.registry, {}).run([self.app, self.app], apply=False)
         self.assertEqual([r.status for r in results], ['failed', 'planned'])
+
+
+class OwnAppProtectionTests(unittest.TestCase):
+    def test_daybreak_gui_is_protected(self):
+        from daybreak.models import protected
+        own = App('co.kwon.daybreak', 'Daybreak', '/Applications/Daybreak.app', '0.1.0', '1', [1], {}, 'Daybreak', 'f', ())
+        self.assertTrue(protected(own))
 
 
 if __name__ == '__main__':

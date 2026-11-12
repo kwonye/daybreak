@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-PROTECTED_PREFIXES = ('com.openai.', 'org.sparkle-project.Sparkle.', 'com.google.GoogleUpdater', 'io.tailscale.')
+PROTECTED_PREFIXES = ('com.openai.', 'org.sparkle-project.Sparkle.', 'com.google.GoogleUpdater', 'io.tailscale.',
+                      'co.kwon.daybreak')  # Daybreak's own GUI must never quit itself mid-run
 
 @dataclass(frozen=True)
 class App:

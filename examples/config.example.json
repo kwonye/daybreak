@@ -4,7 +4,7 @@
   "quit_timeout_seconds": 60,
   "restart_current": true,
   "restart_unmanaged": true,
-  "exclude": [],
+  "whitelist": ["com.example.DoNotInterrupt", "com.jetbrains.*"],
   "apps": {
     "com.docker.docker": {
       "backend": "docker",

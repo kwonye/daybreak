@@ -124,12 +124,64 @@ class CliSafetyTests(unittest.TestCase):
     def test_invalid_config_fails_before_inventory(self):
         invalid = [[], {'hour': True}, {'hour': -1}, {'hour': 24}, {'hour': '8'},
                    {'timezone': 'Not/A_Real_Zone'}, {'apps': []}, {'apps': {'x': []}},
-                   {'exclude': 'com.example.Editor'}, {'restart_current': 'false'},
+                   {'exclude': 'com.example.Editor'}, {'whitelist': 'com.example.Editor'},
+                   {'whitelist': ['']}, {'whitelist': [1]}, {'restart_current': 'false'},
                    {'apps': {'com.docker.docker': {'allow_workload_interruption': 'false'}}}]
         for config in invalid:
             with self.subTest(config=config):
                 self.assertEqual(self.run_cli(['--due'], config), 1)
         self.mac.inventory.assert_not_called()
+
+    def apps(self):
+        from daybreak.models import App
+        return [App(b, b, '/Applications/X.app', '1', '1', (1,)) for b in ('org.a.One', 'org.a.Two', 'org.b.Three')]
+
+    def run_report(self, flags=(), config=None):
+        buf = io.StringIO()
+        argv = ['run', '--bridge', str(self.bridge), '--state-dir', str(self.state), *flags]
+        if config is not None:
+            path = self.root / 'config.json'
+            path.write_text(json.dumps(config))
+            argv += ['--config', str(path)]
+        with patch('daybreak.cli.Coordinator') as coord, redirect_stdout(buf), redirect_stderr(io.StringIO()):
+            coord.return_value.run.return_value = []
+            self.assertEqual(cli.main(argv), 0)
+        config_used = coord.call_args[0][2]
+        return config_used, [a.bundle_id for a in coord.return_value.run.call_args[0][0]]
+
+    def test_skip_flag_merges_into_whitelist_for_run_only(self):
+        self.mac.inventory.return_value = self.apps()
+        config, _ = self.run_report(['--skip', 'org.a.*', '--skip', 'x'], {'whitelist': ['y']})
+        self.assertEqual(config['whitelist'], ['y', 'org.a.*', 'x'])
+        self.assertFalse((self.root / 'config.json').read_text().count('org.a.*'))
+
+    def test_whitelist_beats_only(self):
+        from daybreak.coordinator import Coordinator
+        self.mac.inventory.return_value = self.apps()
+        config, ids = self.run_report(['--only', 'org.a.One', '--only', 'org.b.Three', '--skip', 'org.a.One'])
+        self.assertEqual(ids, ['org.a.One', 'org.b.Three'])
+        result = Coordinator(Mock(), Mock(), config).handle(self.apps()[0], False)
+        self.assertEqual((result.status, result.detail), ('excluded', 'Whitelisted by configuration'))
+
+    def test_empty_skip_is_rejected(self):
+        self.assertEqual(self.run_cli(['--skip', '']), 1)
+        self.mac.inventory.assert_not_called()
+
+    def test_inventory_reports_whitelisted_and_protected_with_config(self):
+        from daybreak.models import App
+        self.mac.inventory.return_value = self.apps() + [App('com.openai.x', 'x', '/Applications/x.app', '1', '1', (2,))]
+        path = self.root / 'config.json'
+        path.write_text(json.dumps({'whitelist': ['org.a.*']}))
+        def inv(*extra):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(cli.main(['inventory', '--bridge', str(self.bridge), *extra]), 0)
+            return json.loads(buf.getvalue())
+        rows = inv('--config', str(path))
+        self.assertEqual([(r['whitelisted'], r['protected']) for r in rows],
+                         [(True, False), (True, False), (False, False), (False, True)])
+        self.assertNotIn('whitelisted', inv()[0])
+        self.assertEqual(rows[0]['bundle_id'], 'org.a.One')
 
     def test_root_apply_is_refused_without_inventory(self):
         with patch('daybreak.cli.os.geteuid', return_value=0):

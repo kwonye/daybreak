@@ -1,3 +1,4 @@
+from fnmatch import fnmatchcase
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 def validate(config):
@@ -8,6 +9,9 @@ def validate(config):
     exclude = config.get('exclude', [])
     if not isinstance(exclude, list) or not all(isinstance(x, str) for x in exclude):
         raise ValueError('exclude must be a list of bundle IDs')
+    whitelist = config.get('whitelist', [])
+    if not isinstance(whitelist, list) or not all(isinstance(x, str) and x for x in whitelist):
+        raise ValueError('whitelist must be a list of bundle IDs or patterns')
     for key in ('restart_unmanaged', 'restart_current'):
         if key in config and type(config[key]) is not bool:
             raise ValueError(f'{key} must be a boolean')
@@ -33,3 +37,8 @@ def validate(config):
             if key in spec and not isinstance(spec[key], str):
                 raise ValueError(f'{bundle_id}.{key} must be a string')
     return config
+
+
+def whitelisted(bundle_id, config):
+    """True if bundle_id matches any whitelist (or legacy exclude) entry: exact ID or case-sensitive glob."""
+    return any(fnmatchcase(bundle_id, p) for p in (*config.get('whitelist', []), *config.get('exclude', [])))

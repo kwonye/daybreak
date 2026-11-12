@@ -9,7 +9,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
   "quit_timeout_seconds": 60,
   "restart_current": true,
   "restart_unmanaged": true,
-  "exclude": ["com.example.DoNotInterrupt"],
+  "whitelist": ["com.example.DoNotInterrupt", "com.jetbrains.*"],
   "sparkle_cli": "/absolute/path/to/sparkle.app/Contents/MacOS/sparkle",
   "apps": {
     "com.docker.docker": {
@@ -26,6 +26,14 @@ JSON, stored outside the repository. Unknown updater families are never treated 
   }
 }
 ```
+
+## Whitelist
+
+`whitelist` is a list of apps Daybreak always skips: never checked, updated, quit or relaunched, and never probed for a backend (dry-run or apply). Each entry is an exact bundle ID or a case-sensitive shell-style glob (`fnmatch`), e.g. `com.jetbrains.*`. Matching apps report status `excluded` with detail `Whitelisted by configuration`. Entries must be non-empty strings.
+
+`exclude` is a legacy alias and still works; the effective skip list is the union of `whitelist` and `exclude`. The whitelist can only add skips: built-in protected apps stay protected (detail `Protected host/system app`).
+
+`run --skip BUNDLE_ID_OR_PATTERN` (repeatable) adds entries for that run only and is not persisted. The whitelist wins over `--only`. With `--config`, `inventory` adds boolean `whitelisted` and `protected` fields to each app.
 
 Only set Docker's flag true after accepting container/VM/Kubernetes interruption. No Docker restart occurs otherwise, even through restart-only fallback.
 

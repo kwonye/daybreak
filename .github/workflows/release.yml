@@ -1,0 +1,102 @@
+name: Release
+# Builds a Developer ID signed, notarized Daybreak.app and attaches it to a GitHub release.
+# Run manually, or push a tag `vX.Y.Z` matching the version in pyproject.toml.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  mac-app:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check version and required secrets
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            exit 1
+          fi
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            exit 1
+          fi
+      - name: Test
+        run: |
+          python -m unittest discover -s tests
+          cd app && swift build && swift test
+      - name: Import signing certificate into a temporary keychain
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/daybreak-signing.keychain-db"
+          keychain_password=$(openssl rand -hex 24)
+          cert="$RUNNER_TEMP/certificate.p12"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$cert"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$cert" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$cert"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)
+          if [ -z "$identity" ]; then
+            echo "::error::The certificate in MACOS_CERTIFICATE_P12_BASE64 is not a Developer ID Application certificate"
+            exit 1
+          fi
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Store notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool store-credentials daybreak-notary \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
+          echo "NOTARY_PROFILE=daybreak-notary" >> "$GITHUB_ENV"
+      - name: Build, sign, notarize and staple
+        run: ./scripts/build-app.sh
+      - name: Verify
+        run: |
+          codesign --verify --strict --verbose=2 .build/Daybreak.app
+          xcrun stapler validate .build/Daybreak.app
+          spctl --assess --type execute --verbose .build/Daybreak.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Daybreak-${{ env.VERSION }}
+          path: .build/dist/*.zip
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" .build/dist/*.zip --title "Daybreak $VERSION" --generate-notes
+      - name: Delete temporary keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
