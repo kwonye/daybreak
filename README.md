@@ -138,3 +138,14 @@ python3 tests/native_smoke.py --run
 ```
 
 Tests cover safety failures, backend commands, DST, idempotency, locking and configuration. The opt-in macOS smoke test verifies real AppKit quit/relaunch/PID replacement using an app created for the test; it does not update your installed apps.
+
+## CI coverage
+
+Pull requests and pushes to `main` run Python tests on Linux and macOS, plus
+SwiftUI tests and universal app/helper build and signature verification on macOS.
+The macOS checks share one runner rather than repeating helper builds on a third
+runner. Code, scripts, package configuration, and workflow changes trigger these
+checks; documentation-only changes do not. Feature branches run on their pull
+request rather than once on push and again on the PR. Use Actions → Test → Run
+workflow to verify any ref manually. No local test hook is assumed, and the signed
+release, notarization, and publishing workflow remains unchanged.

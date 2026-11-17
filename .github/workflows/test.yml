@@ -1,13 +1,36 @@
 name: Test
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'daybreak/**'
+      - 'tests/**'
+      - 'app/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'daybreak/**'
+      - 'tests/**'
+      - 'app/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
   unit:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,21 +38,27 @@ jobs:
           python-version: '3.11'
       - run: python -m unittest discover -s tests -v
       - run: python -m compileall -q daybreak tests
-      - if: runner.os == 'macOS'
-        run: ./scripts/build.sh
   mac-app:
     # Pinned image and Xcode so the Swift 6 toolchain and Swift Testing are known quantities.
     runs-on: macos-15
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Keep macOS Python coverage on the existing native runner instead of a third job.
+      - run: python -m unittest discover -s tests -v
+      - run: python -m compileall -q daybreak tests
       - run: xcodebuild -version && swift --version
       - name: Build and test the SwiftUI app
         working-directory: app
         run: |
           swift build
           swift test
+      # This also compiles native/AppBridge.swift for both architectures.
       - name: Assemble the app bundle (universal, ad-hoc signed)
         run: ./scripts/build-app.sh
       - run: codesign --verify --strict --verbose=2 .build/Daybreak.app
