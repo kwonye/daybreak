@@ -4,6 +4,10 @@ struct EngineConfiguration: Sendable {
     let timeZone: TimeZone
     let timeZoneID: String
     let hour: Int
+    let minute: Int
+    let cadence: ScheduleCadence
+    let weekday: ScheduleWeekday
+    let automaticRuns: Bool
     let quitTimeout: TimeInterval
     let restartCurrent: Bool
     let restartUnmanaged: Bool
@@ -45,6 +49,12 @@ struct EngineConfiguration: Sendable {
               let timeZone = TimeZone(identifier: zone), timeZone.identifier == zone || zone.contains("/") || zone == "UTC" else {
             throw EngineFailure("timezone must be a valid IANA timezone")
         }
+        let schedule = try ConfigDocument(root: object).settings()
+        guard (0...59).contains(schedule.minute) else { throw EngineFailure("minute must be an integer from 0 through 59") }
+        minute = schedule.minute
+        cadence = schedule.cadence
+        weekday = schedule.weekday
+        automaticRuns = schedule.automaticRuns
         self.timeZone = timeZone
         timeZoneID = zone
         if let value = object["sparkle_cli"], value.stringValue == nil {

@@ -19,6 +19,7 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)
             BehaviorSettingsView(model: model)
+                .frame(height: 650)
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Tab.behavior)
         }
@@ -51,49 +52,8 @@ private struct BehaviorSettingsView: View {
                     }
                 }
             }
-            Section {
-                Picker("Hour", selection: $draft.hour) {
-                    ForEach(0..<24, id: \.self) { hour in
-                        Text(String(format: "%02d:00", hour)).tag(hour)
-                    }
-                }
-                LabeledContent("Time zone") {
-                    TimeZonePicker(selection: $draft.timezone, keep: [config.settings.timezone])
-                }
-            } header: {
-                Text("Daily Window")
-            } footer: {
-                Text(verbatim: "Used only by externally scheduled “run --due” invocations: at most one run per local date, at or after this hour. Daybreak does not create schedules.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Section("Restarts") {
-                LabeledContent("Quit timeout") {
-                    HStack {
-                        TextField("Quit timeout in seconds", value: $draft.quitTimeoutSeconds, format: .number)
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 64)
-                        Stepper("Quit timeout", value: $draft.quitTimeoutSeconds, in: 1...600, step: 5)
-                            .labelsHidden()
-                        Text("seconds (1–600)").foregroundStyle(.secondary)
-                    }
-                }
-                Toggle("Restart apps that are already current", isOn: $draft.restartCurrent)
-                Toggle("Restart apps without a supported updater", isOn: $draft.restartUnmanaged)
-            }
-            Section {
-                Toggle("Install Mac App Store updates in Daybreak", isOn: $draft.directAppStoreUpdates)
-            } header: {
-                Text("Mac App Store")
-            } footer: {
-                Text("macOS may ask for administrator approval. Check for updates again after changing this setting.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            ScheduleFields(draft: $draft)
+            UpdateBehaviorFields(draft: $draft)
             if !problems.isEmpty {
                 Section {
                     ForEach(problems, id: \.self) {
@@ -158,7 +118,7 @@ private struct BehaviorSettingsView: View {
 }
 
 /// Button showing the selected zone; opens a searchable list grouped by region.
-private struct TimeZonePicker: View {
+struct TimeZonePicker: View {
     @Binding var selection: String
     /// Identifiers to keep in the list even if unknown to Foundation's list (e.g. from the config).
     let keep: [String]
@@ -259,9 +219,19 @@ private struct TimeZoneList: View {
 private struct GeneralSettingsView: View {
     @Bindable var model: AppModel
     @State private var draftStateFolder = ""
+    @State private var showingSetup = false
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Guided setup") {
+                    Button("Set Up Daybreak…") {
+                        model.config.reload()
+                        showingSetup = true
+                    }
+                    .disabled(!model.isEngineReady)
+                }
+            }
             Section {
                 Toggle("Show Daybreak in the menu bar", isOn: $model.showMenuBar)
                     .disabled(model.hideDockIcon)
@@ -303,6 +273,7 @@ private struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { draftStateFolder = model.stateDirectoryPath }
+        .sheet(isPresented: $showingSetup) { SetupView(model: model) }
     }
 }
 

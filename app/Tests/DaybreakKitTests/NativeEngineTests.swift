@@ -79,6 +79,49 @@ import Testing
         #expect(try state.due(at: date(timestamp), config: config).isDue == expected)
     }
 
+    @Test func scheduleHonorsCadenceDayAndMinute() throws {
+        let config = temporaryURL()
+        let directory = temporaryURL()
+        defer {
+            try? FileManager.default.removeItem(at: config)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let state = NativeState(directory: directory)
+        try Data(#"{"timezone":"UTC","hour":8,"minute":35,"schedule_cadence":"weekdays"}"#.utf8).write(to: config)
+        let weekdays = try EngineConfiguration(url: config)
+        #expect(try !state.due(at: date("2026-11-22T09:00:00Z"), config: weekdays).isDue)
+        #expect(try !state.due(at: date("2026-11-23T08:34:00Z"), config: weekdays).isDue)
+        #expect(try state.due(at: date("2026-11-23T08:35:00Z"), config: weekdays).isDue)
+        try Data(#"{"timezone":"UTC","hour":8,"minute":35,"schedule_cadence":"weekly","schedule_weekday":3}"#.utf8).write(to: config)
+        let weekly = try EngineConfiguration(url: config)
+        #expect(try !state.due(at: date("2026-11-23T09:00:00Z"), config: weekly).isDue)
+        #expect(try state.due(at: date("2026-11-24T09:00:00Z"), config: weekly).isDue)
+        try state.consume(date: "2026-11-24", startedAt: "2026-11-24T09:00:00Z")
+        #expect(try !state.due(at: date("2026-11-24T09:01:00Z"), config: weekly).isDue)
+        #expect(try state.due(at: date("2026-12-01T09:00:00Z"), config: weekly).isDue)
+    }
+
+    @Test func automaticRunRequiresOptInAndSharesTheCLIGate() throws {
+        let config = temporaryURL()
+        let directory = temporaryURL()
+        defer {
+            try? FileManager.default.removeItem(at: config)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let now = { date("2026-11-23T20:00:00Z") }
+        let platform = FakePlatform([])
+        let engine = NativeEngine(configURL: config, stateDirectory: directory, platform: platform)
+        let disabled = try engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
+        #expect(try JSONDecoder().decode(RunReport.self, from: disabled.data).status == "not_due")
+        #expect(platform.events.isEmpty)
+        try Data(#"{"automatic_runs":true}"#.utf8).write(to: config)
+        let scheduled = try engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
+        #expect(try JSONDecoder().decode(RunReport.self, from: scheduled.data).apply)
+        let cli = try engine.execute(.run, apply: true, due: true, now: now)
+        #expect(try JSONDecoder().decode(RunReport.self, from: cli.data).status == "not_due")
+        #expect(platform.events == ["inventory"])
+    }
+
     @Test func lockExcludesOtherRunsAndReportsArePrivate() throws {
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -54,8 +54,16 @@ struct NativeState: Sendable {
     func due(at now: Date, config: EngineConfiguration) throws -> (isDue: Bool, localDate: String) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = config.timeZone
-        let parts = calendar.dateComponents([.year, .month, .day, .hour], from: now)
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: now)
         let date = String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!)
+        let eligible: Bool
+        switch config.cadence {
+        case .daily: eligible = true
+        case .weekdays: eligible = (2...6).contains(parts.weekday ?? 0)
+        case .weekly: eligible = parts.weekday == config.weekday.rawValue
+        }
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        guard eligible, minutes >= config.hour * 60 + config.minute else { return (false, date) }
         let previous: String?
         do {
             let data = try Data(contentsOf: directory.appendingPathComponent("schedule.json"))
@@ -66,7 +74,7 @@ struct NativeState: Sendable {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             previous = nil
         }
-        return ((parts.hour ?? 0) >= config.hour && date != previous, date)
+        return (date != previous, date)
     }
 
     func consume(date: String, startedAt: String) throws {

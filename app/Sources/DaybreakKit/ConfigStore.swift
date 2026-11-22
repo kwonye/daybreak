@@ -38,11 +38,35 @@ public struct WhitelistEntry: Sendable, Hashable, Identifiable {
     }
 }
 
+public enum ScheduleCadence: String, CaseIterable, Identifiable, Sendable {
+    case daily, weekdays, weekly
+    public var id: Self { self }
+
+    public var title: String {
+        switch self {
+        case .daily: "Every day"
+        case .weekdays: "Weekdays"
+        case .weekly: "Once a week"
+        }
+    }
+}
+
+/// Gregorian weekday numbers as returned by Calendar.
+public enum ScheduleWeekday: Int, CaseIterable, Identifiable, Sendable {
+    case monday = 2, tuesday, wednesday, thursday, friday, saturday, sunday = 1
+    public var id: Self { self }
+    public var title: String { Calendar.current.weekdaySymbols[rawValue - 1] }
+}
+
 /// The subset of engine settings the Settings window edits.
 public struct EngineSettings: Sendable, Equatable {
     public static let defaultTimezone = "America/Los_Angeles"
 
     public var hour: Int = 8
+    public var minute = 0
+    public var cadence: ScheduleCadence = .daily
+    public var weekday: ScheduleWeekday = .monday
+    public var automaticRuns = false
     public var timezone: String = EngineSettings.defaultTimezone
     public var quitTimeoutSeconds: Double = 60
     public var restartCurrent: Bool = true
@@ -55,6 +79,7 @@ public struct EngineSettings: Sendable, Equatable {
     /// Human readable problems; empty when valid. Mirrors `daybreak/config.py`.
     public func validationErrors() -> [String] {
         var problems: [String] = []
+        if !(0...59).contains(minute) { problems.append("Minute must be an integer from 0 through 59.") }
         if !(0...23).contains(hour) { problems.append("Hour must be an integer from 0 through 23.") }
         if !(1...600).contains(quitTimeoutSeconds) { problems.append("Quit timeout must be between 1 and 600 seconds.") }
         if TimeZone(identifier: timezone) == nil { problems.append("“\(timezone)” is not a valid IANA time zone.") }
@@ -161,6 +186,22 @@ public struct ConfigDocument: Sendable, Equatable {
             guard let hour = value.intValue else { throw ConfigError.unexpectedType(key: "hour", expected: "an integer") }
             settings.hour = hour
         }
+        if let value = root["minute"] {
+            guard let minute = value.intValue else { throw ConfigError.unexpectedType(key: "minute", expected: "an integer") }
+            settings.minute = minute
+        }
+        if let value = root["schedule_cadence"] {
+            guard let value = value.stringValue, let cadence = ScheduleCadence(rawValue: value) else {
+                throw ConfigError.unexpectedType(key: "schedule_cadence", expected: "daily, weekdays, or weekly")
+            }
+            settings.cadence = cadence
+        }
+        if let value = root["schedule_weekday"] {
+            guard let value = value.intValue, let weekday = ScheduleWeekday(rawValue: value) else {
+                throw ConfigError.unexpectedType(key: "schedule_weekday", expected: "an integer from 1 through 7")
+            }
+            settings.weekday = weekday
+        }
         if let value = root["timezone"] {
             guard let zone = value.stringValue else { throw ConfigError.unexpectedType(key: "timezone", expected: "a string") }
             settings.timezone = zone
@@ -171,7 +212,8 @@ public struct ConfigDocument: Sendable, Equatable {
         }
         for (key, path) in [("restart_current", \EngineSettings.restartCurrent),
                             ("restart_unmanaged", \EngineSettings.restartUnmanaged),
-                            ("direct_app_store_updates", \EngineSettings.directAppStoreUpdates)] {
+                            ("direct_app_store_updates", \EngineSettings.directAppStoreUpdates),
+                            ("automatic_runs", \EngineSettings.automaticRuns)] {
             if let value = root[key] {
                 guard let flag = value.boolValue else { throw ConfigError.unexpectedType(key: key, expected: "true or false") }
                 settings[keyPath: path] = flag
@@ -186,6 +228,10 @@ public struct ConfigDocument: Sendable, Equatable {
         let problems = settings.validationErrors()
         guard problems.isEmpty else { throw ConfigError.invalidSettings(problems) }
         if settings.hour != original.hour { root["hour"] = .int(settings.hour) }
+        if settings.minute != original.minute { root["minute"] = .int(settings.minute) }
+        if settings.cadence != original.cadence { root["schedule_cadence"] = .string(settings.cadence.rawValue) }
+        if settings.weekday != original.weekday { root["schedule_weekday"] = .int(settings.weekday.rawValue) }
+        if settings.automaticRuns != original.automaticRuns { root["automatic_runs"] = .bool(settings.automaticRuns) }
         if settings.timezone != original.timezone { root["timezone"] = .string(settings.timezone) }
         if settings.quitTimeoutSeconds != original.quitTimeoutSeconds {
             let value = settings.quitTimeoutSeconds

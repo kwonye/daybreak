@@ -88,8 +88,8 @@ final class ConfigModel {
         }
     }
 
-    func save(settings newSettings: EngineSettings) -> Bool {
-        let original = settings
+    func save(settings newSettings: EngineSettings, original: EngineSettings? = nil) -> Bool {
+        let original = original ?? settings
         return mutate { try $0.applySettings(newSettings, original: original) }
     }
 

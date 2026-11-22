@@ -2,6 +2,12 @@
 
 A local macOS update coordinator for the apps that are running when the daily job starts. It checks supported updaters, applies updates, gracefully closes/reopens apps when needed, and verifies that fresh processes launched from the installed bundles.
 
+## Set up Daybreak
+
+Guided setup opens on first launch and is available again under **Settings → General → Set Up Daybreak**. Choose which updates and restarts to allow, a time and cadence, and how Daybreak appears in the menu bar and Dock.
+
+Automatic runs stay off until enabled. When enabled, Daybreak checks the schedule while it’s running, including with its window closed if the menu bar item is active. It does not wake your Mac or replay missed days. If you already use an external job, you can keep that as your trigger.
+
 ## Check for updates in the app
 
 Open **Updates** in Daybreak, or choose **Check for Updates** from the menu bar. Daybreak finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
@@ -75,7 +81,7 @@ The current process may already be older than its bundle on disk. Daybreak compa
 
 ## Daily 08:00 Pacific integration
 
-Use the **existing** daily cloud automation to invoke this on the Mac. Do not create a second schedule:
+If you use an external job, have it invoke Daybreak on the Mac:
 
 ```sh
 cd "$HOME/Developer/github/kwonye/daybreak"
@@ -85,7 +91,7 @@ cd "$HOME/Developer/github/kwonye/daybreak"
 
 For a job that runs from an installed app, invoke `/Applications/Daybreak.app/Contents/Helpers/daybreak` with the same arguments. Keep the same config and state directory when switching commands.
 
-The gate uses `America/Los_Angeles`, so DST follows Pacific wall time. It allows one run per local calendar date at or after 08:00. A late same-day invocation catches up; it does not wake a sleeping Mac, run while logged out, or replay missed days. The existing scheduler remains responsible for invoking the command.
+The gate uses `America/Los_Angeles`, so DST follows Pacific wall time. By default it allows one run per local calendar date at or after 08:00. Settings can change the time and restrict eligible dates to weekdays or one day a week. A late same-day invocation catches up; it does not wake a sleeping Mac, run while logged out, or replay missed days. External jobs and automatic in-app runs share the gate when they use the same state folder.
 
 The date is consumed **before work starts** to avoid repeated interruptions after a crash. Failures are not automatically retried that day. Inspect the report and use a manually targeted `--apply --only ...` without `--due` when safe. Preview leaves the schedule untouched. Keep one consistent state directory across triggers.
 
@@ -127,7 +133,7 @@ Use the packaged `Daybreak.app` to verify Liquid Glass. The bundle build explici
 - **Settings › Updates** edits `hour`, `timezone` (searchable picker), `quit_timeout_seconds`, `restart_current` and `restart_unmanaged`. Every other key in the config file (`apps`, `sparkle_cli`, …) is preserved, and a file that does not parse is never overwritten.
 - **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Check for Updates, Preview, Update Now, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
 
-The app creates no LaunchAgents or schedules and requests no extra permissions.
+The app’s optional schedule runs inside Daybreak and creates no LaunchAgents.
 
 **Release builds.** The version comes from the root VERSION file. `scripts/build-app.sh` builds arm64 and x86_64 slices of the app and its native CLI, signs the bundled helpers and then the app with the hardened runtime for Developer ID builds, and zips the result into `.build/dist/`:
 

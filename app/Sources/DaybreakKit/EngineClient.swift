@@ -28,11 +28,12 @@ public actor EngineClient {
         self.stateDirectory = stateDirectory
     }
 
-    private func invoke(_ command: NativeEngine.Command, apply: Bool = false, only: [String] = [], confirmed: [RunResult]? = nil) throws
+    private func invoke(_ command: NativeEngine.Command, apply: Bool = false, only: [String] = [],
+                        confirmed: [RunResult]? = nil, automatic: Bool = false) throws
         -> (data: Data, exitCode: Int32) {
         do {
             return try NativeEngine(configURL: configURL, stateDirectory: stateDirectory, process: .forGUI())
-                .execute(command, apply: apply, only: only, confirmed: confirmed)
+                .execute(command, apply: apply, due: automatic, only: only, confirmed: confirmed, requireAutomaticRuns: automatic)
         } catch {
             throw EngineError.failed(detail: error.localizedDescription)
         }
@@ -66,6 +67,18 @@ public actor EngineClient {
 
     public func status() throws -> RunReport {
         try decode(RunReport.self, from: invoke(.status).data, command: .status)
+    }
+
+    public func automaticRunIsDue() throws -> Bool {
+        let config = try EngineConfiguration(url: configURL)
+        return try config.automaticRuns && NativeState(directory: stateDirectory).due(at: Date(), config: config).isDue
+    }
+
+    /// The engine rechecks the opt-in and uses the same run lock and date marker as the CLI.
+    public func runAutomatically() throws -> RunOutcome? {
+        let result = try invoke(.run, apply: true, automatic: true)
+        let report = try decode(RunReport.self, from: result.data, command: .run)
+        return report.status == "not_due" ? nil : RunOutcome(report: report, exitCode: result.exitCode)
     }
 
     public func updateInventory() throws -> [UpdateItem] {

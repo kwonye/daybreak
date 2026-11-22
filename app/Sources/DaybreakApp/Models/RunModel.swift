@@ -102,4 +102,22 @@ final class RunModel {
         await app.history.refresh()
         await app.inventory.refresh()
     }
+
+    func runScheduledIfDue() async {
+        guard canStart, app.config.settings.automaticRuns, let client = app.client else { return }
+        guard (try? await client.automaticRunIsDue()) == true, canStart, app.client === client else { return }
+        phase = .applying
+        do {
+            if let result = try await client.runAutomatically() {
+                outcome = result
+                error = nil
+                finishedAt = Date()
+                await app.history.refresh()
+                await app.inventory.refresh()
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+        phase = .idle
+    }
 }

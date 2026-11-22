@@ -6,6 +6,10 @@ JSON, stored outside the repository. Unknown updater families are never treated 
 {
   "timezone": "America/Los_Angeles",
   "hour": 8,
+  "minute": 0,
+  "schedule_cadence": "daily",
+  "schedule_weekday": 2,
+  "automatic_runs": false,
   "quit_timeout_seconds": 60,
   "restart_current": true,
   "restart_unmanaged": false,
@@ -43,6 +47,12 @@ Sparkle CLI is optional and not installed by Daybreak. Build it from the officia
 Chrome auto-discovers the existing user updater under `~/Library/Application Support/Google/GoogleUpdater/Current/`. Only one helper is selected; product and existence-checker path must match. You may configure an absolute `executable` for a supported user-scope helper; the corresponding updater must already exist. Do not point this at a system-scope helper.
 
 Explicit backend names: `sparkle`, `homebrew`, `app-store`, `docker`, `google`, `command`, `restart-only`. Homebrew's optional `cask` must match the already-managed path; it cannot adopt an unmanaged app.
+
+## Restart schedule
+
+The due gate uses the configured wall-clock `hour`, `minute`, and `timezone`. `schedule_cadence` accepts `daily`, `weekdays` (Monday through Friday), or `weekly`. For `weekly`, `schedule_weekday` uses 1 for Sunday through 7 for Saturday and defaults to Monday. Late invocations can run on the same eligible date.
+
+`automatic_runs` opts in to applying updates and restarting eligible running apps while the desktop app is running. CLI invocations using `--due` follow the same cadence regardless of this opt-in. Use the same state directory for both so the gate prevents duplicate runs.
 
 ## Mac App Store
 

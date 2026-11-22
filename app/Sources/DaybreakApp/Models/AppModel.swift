@@ -75,6 +75,7 @@ final class AppModel {
         static let menuBar = "showMenuBar"
         static let hideDock = "hideDockIcon"
         static let selection = "selectedPane"
+        static let setupCompleted = "setupCompleted"
     }
 
     /// Sidebar selection, persisted across launches (a `--pane` launch argument overrides it).
@@ -110,11 +111,30 @@ final class AppModel {
     }
 
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var scheduleTask: Task<Void, Never>?
+
+    var shouldOfferSetup: Bool {
+        !UserDefaults.standard.bool(forKey: DefaultsKey.setupCompleted)
+            && launchOptions.pane == nil && launchOptions.configPath == nil
+            && launchOptions.snapshotDirectory == nil && !launchOptions.openSettings && !launchOptions.autoPreview
+    }
+
+    func completeSetup() {
+        UserDefaults.standard.set(true, forKey: DefaultsKey.setupCompleted)
+    }
 
     func startIfNeeded() async {
         guard !hasStarted else { return }
         hasStarted = true
         await bootstrap()
+        if launchOptions.snapshotDirectory == nil {
+            scheduleTask = Task { [weak self] in
+                while !Task.isCancelled, self != nil {
+                    await self?.runner.runScheduledIfDue()
+                    try? await Task.sleep(for: .seconds(30))
+                }
+            }
+        }
     }
 
     /// Custom `--state-dir` (empty = engine default ~/Library/Application Support/Daybreak).

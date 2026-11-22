@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var model: AppModel
+    @State private var showingSetup = false
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -20,10 +21,12 @@ struct ContentView: View {
         }
         .task {
             await model.startIfNeeded()
+            if model.shouldOfferSetup { showingSetup = true }
             if let directory = model.launchOptions.snapshotDirectory {
                 await Snapshotter.run(model: model, directory: directory)
             }
         }
+        .sheet(isPresented: $showingSetup) { SetupView(model: model) }
         .onAppear {
             if model.launchOptions.openSettings { openSettings() }
         }

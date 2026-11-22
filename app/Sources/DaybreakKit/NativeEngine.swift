@@ -10,7 +10,8 @@ struct NativeEngine {
     var platform: (any ApplicationPlatform)?
 
     func execute(_ command: Command, apply: Bool = false, due: Bool = false, only: [String] = [], skip: [String] = [],
-                 confirmed: [RunResult]? = nil, now: @escaping () -> Date = Date.init) throws -> (data: Data, exitCode: Int32) {
+                 confirmed: [RunResult]? = nil, requireAutomaticRuns: Bool = false,
+                 now: @escaping () -> Date = Date.init) throws -> (data: Data, exitCode: Int32) {
         let state = NativeState(directory: stateDirectory)
         if command == .status { return (try state.status(), 0) }
         if apply && geteuid() == 0 { throw EngineFailure("Run as the logged-in desktop user, never root") }
@@ -25,6 +26,9 @@ struct NativeEngine {
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let started = formatter.string(from: date).replacingOccurrences(of: "Z", with: "+00:00")
             if due {
+                if requireAutomaticRuns && !config.automaticRuns {
+                    return (try NativeState.json(["status": "not_due", "timezone": config.timeZoneID, "hour": config.hour]), Int32(0))
+                }
                 let gate = try state.due(at: date, config: config)
                 guard gate.isDue else {
                     return (try NativeState.json(["status": "not_due", "timezone": config.timeZoneID, "hour": config.hour]), Int32(0))
