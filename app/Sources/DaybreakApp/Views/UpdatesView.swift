@@ -30,8 +30,11 @@ struct UpdatesView: View {
                 List {
                     section("Updates available", items: visible.filter { $0.status == .available })
                     section("Newer releases", items: visible.filter { $0.status == .newerRelease })
-                    section("Other software", items: visible.filter { $0.status != .available && $0.status != .newerRelease && $0.status != .current })
-                    section("Up to date", items: visible.filter { $0.status == .current })
+                    section("System", items: visible.filter { $0.path == nil && $0.status != .available })
+                    section("Other apps", items: visible.filter {
+                        $0.path != nil && $0.status != .available && $0.status != .newerRelease && $0.status != .current
+                    })
+                    section("Up to date", items: visible.filter { $0.path != nil && $0.status == .current })
                 }
                 .listStyle(.inset)
                 .accessibilityIdentifier("updates.list")
@@ -179,6 +182,7 @@ private struct UpdateListRow: View {
                     Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .disabled(!canInstall)
                 .accessibilityLabel("More actions for \(item.name)")
@@ -202,7 +206,8 @@ private struct UpdateListRow: View {
         case .available: "Update available"
         case .current: "Up to date"
         case .newerRelease: "Newer release"
-        case .checkInApp, .openUpdater: "Check manually"
+        case .checkInApp: "Check manually"
+        case .openUpdater: item.action == .install ? "Check and update" : "Check manually"
         case .excluded: "Excluded"
         case .inconclusive: "Check needed"
         case .failed: "Check failed"

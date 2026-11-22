@@ -5,6 +5,7 @@ struct UpdateCheck {
     let state: State
     var target = ""
     var detail = ""
+    var requiresUserAction = false
 }
 
 struct UpdateBackend: Sendable {
@@ -25,10 +26,11 @@ struct UpdateBackend: Sendable {
     var identifier = ""
     var checkArguments: [String] = []
     var applyArguments: [String] = []
+    var preventVendorQuit = false
 
     var managesLifecycle: Bool { kind == .docker }
 
-    func check(_ app: ManagedApp) throws -> UpdateCheck {
+    func check(_ app: ManagedApp, interactiveCatalog: Bool = false) throws -> UpdateCheck {
         switch kind {
         case .restart:
             return UpdateCheck(state: .unknown, detail: "No supported updater configured; restart may apply a staged update")
@@ -36,6 +38,8 @@ struct UpdateBackend: Sendable {
             let result = try process.run([executable, app.path, "--probe", "--user-agent-name", "Daybreak"], 120)
             switch result.exitCode {
             case 0: return UpdateCheck(state: .available, detail: "Sparkle found an update")
+            case 2 where interactiveCatalog:
+                return UpdateCheck(state: .available, detail: "Open the app to review this upgrade.", requiresUserAction: true)
             case 4: return UpdateCheck(state: .current, detail: "Sparkle reports no update")
             default: throw EngineFailure("Sparkle probe exited \(result.exitCode); needs attention")
             }
@@ -93,11 +97,12 @@ struct UpdateBackend: Sendable {
             let result = try process.run([executable, app.path, "--check-immediately", "--user-agent-name", "Daybreak"], 900)
             switch result.exitCode {
             case 0: return ("completed", "")
-            case 4: return ("no_update", "Sparkle reported no update at install time")
+            case 4: return ("no_update", "No update was offered at install time")
             default: throw EngineFailure("Sparkle install exited \(result.exitCode); needs attention")
             }
         case .homebrew:
-            _ = try process.checked([executable, "upgrade", "--cask", identifier], 900)
+            let flags = preventVendorQuit ? ["--no-quit"] : []
+            _ = try process.checked([executable, "upgrade", "--cask"] + flags + [identifier], 900)
         case .appStore:
             _ = try process.checked([executable, "update", identifier], 900)
         case .docker:
@@ -180,7 +185,9 @@ struct BackendRegistry: Sendable {
             return UpdateBackend(kind: .command, process: process, checkArguments: try argv("check", spec: spec),
                                  applyArguments: try argv("apply", spec: spec))
         }
-        let preferSparkle = !includeBundledSparkle || casks[app.path] == nil
+        // Dynamic or app-specific feeds need the app's own updater. An explicit
+        // configuration remains available for those bundles.
+        let preferSparkle = !includeBundledSparkle || (casks[app.path] == nil && hasPublicSparkleFeed(app))
         if kind == "sparkle" || (automatic && preferSparkle && app.metadata.hints.contains("sparkle") && sparkleCLI != nil) {
             guard let command = executable ?? sparkleCLI, isFile(command) else {
                 throw EngineFailure("Official Sparkle CLI not configured or missing")
@@ -224,6 +231,13 @@ struct BackendRegistry: Sendable {
             throw EngineFailure("Unknown backend: \(kind)")
         }
         return UpdateBackend(kind: .restart, process: process)
+    }
+
+    private func hasPublicSparkleFeed(_ app: ManagedApp) -> Bool {
+        guard app.metadata.hints.contains("sparkle"),
+              let value = try? BundleMetadata.info(app.path)["SUFeedURL"] as? String,
+              let url = URL(string: value) else { return false }
+        return url.scheme == "https" && url.host != nil && url.user == nil && url.password == nil
     }
 
     private func argv(_ key: String, spec: [String: JSONValue]) throws -> [String] {

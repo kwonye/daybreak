@@ -38,4 +38,16 @@ struct UpdateCatalogTests {
         #expect(UpdateCatalog.dockerStatus("Docker Desktop is not running") == nil)
         #expect(UpdateCatalog.dockerStatus("An update is available") == .available)
     }
+
+    @Test func publicStoreListingHasToMatchBundlePlatformAndOS() {
+        let mac = AppStoreCatalog.Listing(trackId: 10, bundleId: "example.app",
+                                          version: "2.0", minimumOsVersion: "14.0", kind: "mac-software")
+        let mobile = AppStoreCatalog.Listing(trackId: 10, bundleId: "example.app",
+                                             version: "2.0", minimumOsVersion: "14.0", kind: "software")
+        #expect(mac.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2"))
+        #expect(!mac.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "13.2"))
+        #expect(!mac.isNewerMacVersion(bundleID: "other.app", installed: "1.0", macOS: "14.2"))
+        #expect(!mac.isNewerMacVersion(bundleID: "example.app", installed: "2.0", macOS: "14.2"))
+        #expect(!mobile.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2"))
+    }
 }

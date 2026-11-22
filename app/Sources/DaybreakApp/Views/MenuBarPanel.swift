@@ -28,6 +28,7 @@ struct MenuBarPanel: View {
                         await model.updates.check()
                     }
                 }
+                .accessibilityIdentifier("menuBar.checkForUpdates")
                 action("Preview", icon: "eye") {
                     showWindow(.run)
                     Task { await model.runner.preview() }

@@ -179,7 +179,7 @@ struct MacApplications: ApplicationPlatform, Sendable {
     /// Inventory for interactive updates, including closed apps and without hashing every binary.
     func installedApps() throws -> [ManagedApp] {
         let records = try records()
-        let groups = Dictionary(grouping: records, by: \.path)
+        let groups = Dictionary(grouping: records) { canonicalPath($0.path) ?? $0.path }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
         var paths = Set(groups.keys)
@@ -195,16 +195,19 @@ struct MacApplications: ApplicationPlatform, Sendable {
                 }
             }
         }
-        return paths.compactMap { path in
+        return paths.compactMap { canonical in
+            let rows = groups[canonical] ?? []
+            // Keep the observed URL for a running app so AppKit can still target the exact copy.
+            let path = rows.first?.path ?? canonical
             guard let info = try? BundleMetadata.info(path),
                   let id = info["CFBundleIdentifier"] as? String, !id.isEmpty,
                   info["CFBundlePackageType"] as? String == "APPL",
-                  InventoryApp.protectionReason(bundleID: id, path: path) == nil,
+                  InventoryApp.protectionReason(bundleID: id, path: canonical) == nil,
                   let metadata = try? BundleMetadata.read(path, observed: [], fingerprintExecutable: false)
             else { return nil }
-            let name = groups[path]?.first?.name
+            let name = rows.first?.name
                 ?? (FileManager.default.displayName(atPath: path) as NSString).deletingPathExtension
-            return ManagedApp(bundleID: id, name: name, path: path, processes: groups[path] ?? [],
+            return ManagedApp(bundleID: id, name: name, path: path, processes: rows.filter { $0.path == path },
                               metadata: metadata, stale: false)
         }.sorted { ($0.name.localizedLowercase, $0.path) < ($1.name.localizedLowercase, $1.path) }
     }

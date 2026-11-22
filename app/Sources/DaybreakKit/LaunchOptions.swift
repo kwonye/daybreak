@@ -1,7 +1,7 @@
 import Foundation
 
 /// Launch arguments used for screenshots/QA. None of them can apply updates:
-///   --pane running|whitelist|run|history   initial sidebar item
+///   --pane updates|running|whitelist|run|history   initial sidebar item
 ///   --appearance light|dark                force an appearance
 ///   --preview                              run a read-only preview after launch
 ///   --settings [general|behavior]           open the Settings window on a tab

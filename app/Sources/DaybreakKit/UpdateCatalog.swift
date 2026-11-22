@@ -81,7 +81,9 @@ struct UpdateCatalog: Sendable {
                   let resolved = canonicalPath(path) else { return nil }
             return (resolved, id)
         }
-        return Dictionary(applications, uniquingKeysWith: { first, _ in first })
+        let byUpdaterID = Dictionary(grouping: applications, by: { $0.1 })
+        return Dictionary(byUpdaterID.values.compactMap { $0.count == 1 ? $0.first : nil },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     private var system: UpdateItem {
@@ -101,14 +103,22 @@ struct UpdateCatalog: Sendable {
             }
             if kind == "app-store" { return .store }
             if kind == "docker", spec["allow_workload_interruption"]?.boolValue != true { return .app }
-            return .backend(try registry.backend(for: app))
+            return try scopedBackend(for: app)
         }
         if app.metadata.hints.contains("app-store") { return .store }
         if let appID = microsoft[app.path] { return .microsoft(appID) }
         if let repository = repository(for: app) { return .github(repository) }
-        let backend = try registry.backend(for: app)
-        if backend.kind != .restart { return .backend(backend) }
-        return .app
+        return try scopedBackend(for: app)
+    }
+
+    private func scopedBackend(for app: ManagedApp) throws -> Route {
+        var backend = try registry.backend(for: app)
+        if backend.kind == .restart { return .app }
+        if backend.kind == .homebrew {
+            guard registry.casks.values.count(where: { $0 == backend.identifier }) == 1 else { return .app }
+            backend.preventVendorQuit = true
+        }
+        return .backend(backend)
     }
 
     private func item(for app: ManagedApp, microsoft: [String: String]) -> (UpdateItem, Route) {
@@ -155,16 +165,23 @@ struct UpdateCatalog: Sendable {
         }
         return try state.withLock {
             let microsoft = microsoftApps()
-            guard let app = try platform.installedApps().first(where: { $0.path == path && $0.bundleID == target.bundleID }),
-                  !app.isProtected, !config.whitelisted(app.bundleID), target.isRunning == !app.processes.isEmpty,
-                  (app.metadata.version.isEmpty ? app.metadata.build : app.metadata.version) == target.installedVersion
+            guard let discovered = try platform.installedApps().first(where: { $0.path == path && $0.bundleID == target.bundleID }),
+                  !discovered.isProtected, !config.whitelisted(discovered.bundleID), target.isRunning == !discovered.processes.isEmpty,
+                  (discovered.metadata.version.isEmpty ? discovered.metadata.build : discovered.metadata.version) == target.installedVersion
             else { throw EngineFailure("This app changed. Check for updates again.") }
+            let metadata = try BundleMetadata.read(path, observed: discovered.processes.map(\.executable))
+            guard !metadata.fingerprint.isEmpty, metadata.version == discovered.metadata.version,
+                  metadata.build == discovered.metadata.build else {
+                throw EngineFailure("Daybreak couldn’t verify this installed copy. Open the app to check.")
+            }
+            let app = ManagedApp(bundleID: discovered.bundleID, name: discovered.name, path: path,
+                                 processes: discovered.processes, metadata: metadata, stale: false)
             let backend: UpdateBackend
             let check: UpdateCheck
             switch try route(for: app, microsoft: microsoft) {
             case .backend(let adapter) where adapter.kind != .restart && adapter.kind != .appStore:
                 backend = adapter
-                check = try adapter.check(app)
+                check = try adapter.check(app, interactiveCatalog: true)
             case .microsoft(let id):
                 backend = UpdateBackend(kind: .microsoft, process: process, executable: Self.microsoftUpdater, identifier: id)
                 guard let updates = microsoftUpdates() else {
@@ -176,6 +193,12 @@ struct UpdateCatalog: Sendable {
             }
 
             var result = target
+            if check.requiresUserAction {
+                result.status = .available
+                result.action = .openApp
+                result.detail = check.detail
+                return result
+            }
             if check.state == .current {
                 result.status = .current
                 result.action = nil
@@ -222,7 +245,7 @@ struct UpdateCatalog: Sendable {
         var outcome = AppOutcome(app: app)
         outcome.backend = backend.kind.rawValue
         do {
-            let before = try BundleMetadata.read(app.path, observed: [])
+            let before = app.metadata
             let signer = try platform.signer(app)
             guard try platform.current(app).isEmpty else { throw EngineFailure("This app opened. Check for updates again.") }
             let result = try backend.apply(app)
@@ -231,17 +254,19 @@ struct UpdateCatalog: Sendable {
             outcome.after = after.version
             outcome.afterBuild = after.build
             outcome.updateOutcome = result?.outcome ?? ""
-            outcome.verification = "Installed bundle identity and signing team verified. App was left closed."
+            let appIsClosed = try platform.current(app).isEmpty
+            outcome.verification = "Installed bundle identity and signing team verified."
             if let result, result.outcome == "no_update" {
                 outcome.status = .current
-                outcome.detail = "No update was offered. App was left closed."
+                outcome.detail = "No update was offered."
             } else {
                 guard check.target.isEmpty || check.target == after.version || check.target == after.build else {
                     throw EngineFailure("The installed bundle did not match the offered version.")
                 }
                 let changed = (before.version, before.build, before.fingerprint) != (after.version, after.build, after.fingerprint)
                 outcome.status = changed ? .updated : .unchanged
-                outcome.detail = changed ? "Installed update. App was left closed." : "Updater finished. Version unchanged."
+                outcome.detail = changed ? (appIsClosed ? "Installed update. App was left closed." : "Installed update.")
+                    : "Updater finished. Version unchanged."
             }
         } catch let error as UpdaterTimeout {
             outcome.status = .uncertain
@@ -256,8 +281,8 @@ struct UpdateCatalog: Sendable {
     func check(_ items: [UpdateItem], progress: @Sendable (UpdateItem) async -> Void) async throws {
         let microsoft = microsoftApps()
         let apps = try Dictionary(uniqueKeysWithValues: platform.installedApps().map { ($0.path, $0) })
-        let storeIDs = Set(items.compactMap { row in row.action == .openStore ? row.bundleID : nil })
-        let store = storeIDs.isEmpty ? nil : Task.detached(priority: .utility) { storeUpdates() }
+        let stores = items.filter { $0.action == .openStore }
+        let store = stores.isEmpty ? nil : Task.detached(priority: .utility) { await storeResults(stores, apps: apps) }
         let microsoftAvailable = apps.values.contains { microsoft[$0.path] != nil }
             ? Task.detached(priority: .utility) { microsoftUpdates() } : nil
         defer {
@@ -288,7 +313,7 @@ struct UpdateCatalog: Sendable {
         }
     }
 
-    private func check(_ item: UpdateItem, app: ManagedApp, route: Route, store: Task<StoreUpdates?, Never>?,
+    private func check(_ item: UpdateItem, app: ManagedApp, route: Route, store: Task<[String: StoreResult], Never>?,
                        microsoft: Task<[String: String]?, Never>?) async throws -> UpdateItem {
         guard item.status == .readyToCheck else { return item }
         var item = item
@@ -313,12 +338,13 @@ struct UpdateCatalog: Sendable {
                         item.detail = "Daybreak can ask this app’s updater to check and install."
                     }
                 default:
-                    let result = try backend.check(app)
+                    let result = try backend.check(app, interactiveCatalog: true)
                     switch result.state {
                     case .available:
                         item.status = .available
-                        item.action = .install
+                        item.action = result.requiresUserAction ? .openApp : .install
                         item.offeredVersion = result.target
+                        if result.requiresUserAction { item.detail = result.detail }
                     case .current: item.status = .current
                     case .unknown:
                         item.status = .checkInApp
@@ -326,13 +352,17 @@ struct UpdateCatalog: Sendable {
                     }
                 }
             case .store:
-                guard let store = await store?.value, let id = storeID(for: app), store.installed.contains(id) else {
+                switch await store?.value[app.path] {
+                case .available:
+                    item.status = .available
+                case .current:
+                    item.status = .current
+                case .newer(let version):
+                    item.offeredVersion = version
+                    item.status = .newerRelease
+                case nil:
                     item.status = .openUpdater
-                    item.detail = "Open Updates to see what’s available for your account."
-                    break
                 }
-                item.status = store.outdated[id] != nil ? .available : .current
-                item.offeredVersion = store.outdated[id] ?? ""
             case .microsoft(let id):
                 guard let microsoft = await microsoft?.value else {
                     item.status = .openUpdater
@@ -406,6 +436,29 @@ struct UpdateCatalog: Sendable {
     }
 
     private struct StoreUpdates: Sendable { let installed: Set<String>; let outdated: [String: String] }
+    private enum StoreResult: Sendable { case current, available, newer(String) }
+
+    private func storeResults(_ items: [UpdateItem], apps: [String: ManagedApp]) async -> [String: StoreResult] {
+        let local = items.compactMap { item -> (ManagedApp, String)? in
+            guard let path = item.path, let app = apps[path], let id = storeID(for: app) else { return nil }
+            return (app, id)
+        }
+        guard !local.isEmpty else { return [:] }
+        let mas = storeUpdates()
+        let lookup = local.filter { mas?.installed.contains($0.1) != true }
+        let listings = await AppStoreCatalog.listings(for: Array(Set(lookup.map(\.1))).sorted())
+        var results: [String: StoreResult] = [:]
+        for (app, id) in local {
+            if let mas, mas.installed.contains(id) {
+                results[app.path] = mas.outdated[id] != nil ? .available : .current
+            } else if let listing = listings[id],
+                      listing.isNewerMacVersion(bundleID: app.bundleID, installed: app.metadata.version,
+                                               macOS: Self.installedOSVersion) {
+                results[app.path] = .newer(listing.version)
+            }
+        }
+        return results
+    }
 
     private func storeID(for app: ManagedApp) -> String? {
         guard let output = try? process.checked(["/usr/bin/mdls", "-raw", "-name", "kMDItemAppStoreAdamID", app.path], 10)
