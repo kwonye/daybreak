@@ -1,14 +1,12 @@
 # Architecture
 
-Python standard-library orchestration with a small compiled Swift/AppKit bridge.
+The SwiftUI app and bundled CLI both use the native engine in `DaybreakKit`.
 
-- `models.py`: immutable snapshot + structured outcomes + protected identifiers.
-- `platform.py`: process inventory, plist metadata/fingerprints, graceful quit, open, signing checks, fresh-process verification.
-- `backends.py`: capabilities and exact scoped commands; unsupported families stay explicit.
-- `coordinator.py`: common check/install/relaunch/verify lifecycle, failure isolation and recovery.
-- `state.py`: private atomic JSON, flock overlap control, Pacific-date gate and retention.
-- `config.py`: strict safety-relevant types; strings like `"false"` cannot enable interruption.
-- `native/AppBridge.swift`: `inventory` and identity-checked normal `quit PID BUNDLE_ID`. No Accessibility or forced termination.
+- `MacApplications.swift` uses AppKit to enumerate processes and request normal termination. It also reads bundle metadata, verifies developer signatures, and checks that a fresh primary process launched.
+- `UpdateBackends.swift` selects a supported updater and runs scoped commands. Optional adapters still require their own vendor tools.
+- `UpdateCoordinator.swift` performs each check, installation, relaunch and verification, and isolates failures per app.
+- `EngineConfiguration.swift` validates the existing JSON configuration. `NativeState.swift` preserves the existing report files, atomic writes, overlap lock and timezone-aware daily gate.
+- `NativeEngine.swift` runs the engine and exposes the CLI contract. The GUI calls the same engine in a Swift actor and the CLI is packaged at `Daybreak.app/Contents/Helpers/daybreak`.
 
 ## Boundaries
 

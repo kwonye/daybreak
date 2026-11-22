@@ -6,11 +6,12 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "DaybreakApp", targets: ["DaybreakApp"]),
+        .executable(name: "daybreak", targets: ["DaybreakCLI"]),
     ],
     targets: [
-        // Pure logic: engine process execution, JSON decoding, config preservation, whitelist matching.
+        // Native engine and shared config and report models.
         .target(name: "DaybreakKit"),
-        // SwiftUI front end. Never reimplements update/quit/relaunch logic; it shells out to the Python engine.
+        .executableTarget(name: "DaybreakCLI", dependencies: ["DaybreakKit"]),
         .executableTarget(name: "DaybreakApp", dependencies: ["DaybreakKit"]),
         .testTarget(name: "DaybreakKitTests", dependencies: ["DaybreakKit"]),
     ],

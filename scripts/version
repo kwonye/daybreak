@@ -1,0 +1,10 @@
+#!/bin/sh
+# Shared by local builds and release automation.
+set -eu
+cd "$(dirname "$0")/.."
+version="$(cat VERSION)"
+if ! printf '%s' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
+    printf 'error: VERSION must contain a valid bundle version\n' >&2
+    exit 1
+fi
+printf '%s\n' "$version"

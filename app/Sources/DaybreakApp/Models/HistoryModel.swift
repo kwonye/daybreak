@@ -22,11 +22,14 @@ final class HistoryModel {
         guard let client = app.client, !state.isLoading else { return }
         state = .loading
         let directory = client.stateDirectory
+        let stored = Task.detached(priority: .userInitiated) { HistoryStore.runs(in: directory) }
         do {
             latest = try await client.status()
-            runs = await Task.detached(priority: .userInitiated) { HistoryStore.runs(in: directory) }.value
+            runs = await stored.value
             state = .loaded
         } catch {
+            latest = nil
+            runs = await stored.value
             state = .failed(error.localizedDescription)
         }
     }

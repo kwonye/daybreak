@@ -116,6 +116,9 @@ extension StatusTone {
 
 struct StatusBadge: View {
     let status: ResultStatus
+    var isSelected = false
+
+    private var tint: Color { isSelected ? .primary : status.tone.color }
 
     var body: some View {
         Label(status.title, systemImage: status.symbolName)
@@ -123,9 +126,9 @@ struct StatusBadge: View {
             .lineLimit(1)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .foregroundStyle(status.tone.color)
-            .background(status.tone.color.opacity(0.15), in: Capsule())
-            .overlay(Capsule().strokeBorder(status.tone.color.opacity(0.25), lineWidth: 0.5))
+            .foregroundStyle(tint)
+            .background(tint.opacity(0.15), in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(0.25), lineWidth: 0.5))
             .help(status.isKnown ? status.rawValue : "Unrecognised status “\(status.rawValue)”")
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Status: \(status.title)")

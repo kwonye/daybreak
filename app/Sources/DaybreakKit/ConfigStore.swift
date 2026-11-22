@@ -46,7 +46,8 @@ public struct EngineSettings: Sendable, Equatable {
     public var timezone: String = EngineSettings.defaultTimezone
     public var quitTimeoutSeconds: Double = 60
     public var restartCurrent: Bool = true
-    public var restartUnmanaged: Bool = true
+    static let defaultRestartUnmanaged = false
+    public var restartUnmanaged: Bool = Self.defaultRestartUnmanaged
 
     public init() {}
 

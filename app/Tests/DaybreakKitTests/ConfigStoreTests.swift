@@ -120,10 +120,11 @@ import Testing
         #expect(original.timezone == EngineSettings.defaultTimezone)
         var edited = original
         edited.hour = 7
-        edited.restartUnmanaged = false
+        #expect(!original.restartUnmanaged)
+        edited.restartUnmanaged = true
         try document.applySettings(edited, original: original)
         #expect(document.root["hour"] == .int(7))
-        #expect(document.root["restart_unmanaged"] == .bool(false))
+        #expect(document.root["restart_unmanaged"] == .bool(true))
         #expect(document.root["timezone"] == nil)
         #expect(document.root["restart_current"] == nil)
         #expect(document.root["quit_timeout_seconds"] == .int(60))

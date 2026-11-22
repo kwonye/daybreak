@@ -19,7 +19,7 @@ struct ContentView: View {
                 .frame(minWidth: 600, minHeight: 420)
         }
         .task {
-            await model.bootstrap()
+            await model.startIfNeeded()
             if let directory = model.launchOptions.snapshotDirectory {
                 await Snapshotter.run(model: model, directory: directory)
             }
@@ -47,45 +47,21 @@ struct ContentView: View {
     @ViewBuilder
     private var detail: some View {
         switch model.engineState {
-        case .locating:
-            LoadingView(message: "Locating the Daybreak engine…")
-        // The whitelist only edits the config file, so it stays usable without an engine.
-        case .unavailable(let title, let message) where model.selection != .whitelist:
-            EngineUnavailableView(title: title, message: message) { Task { await model.bootstrap() } }
-                .navigationTitle(model.selection?.title ?? "Daybreak")
+        case .loading:
+            LoadingView(message: "Starting Daybreak…")
         default:
             switch model.selection ?? .runningApps {
             case .runningApps:
                 RunningAppsView(inventory: model.inventory, config: model.config)
             case .whitelist:
                 WhitelistView(config: model.config, inventory: model.inventory,
-                              revealConfig: model.revealConfigInFinder)
+                              revealConfig: model.revealConfigInFinder, addRequest: model.whitelistAddRequest)
             case .run:
-                RunView(runner: model.runner, isEngineReady: model.isEngineReady)
+                RunView(runner: model.runner)
             case .history:
                 HistoryView(history: model.history, stateDirectory: model.stateDirectory,
                             reveal: model.revealStateDirectoryInFinder)
             }
-        }
-    }
-}
-
-private struct EngineUnavailableView: View {
-    let title: String
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message).textSelection(.enabled)
-        } actions: {
-            HStack {
-                SettingsLink { Text("Open Settings…") }
-                Button("Try Again", action: retry)
-            }
-            .fixedSize()
         }
     }
 }
@@ -115,8 +91,7 @@ private struct EngineStatusFooter: View {
     private var color: Color {
         switch model.engineState {
         case .ready: model.runner.isBusy ? .blue : .green
-        case .locating: .yellow
-        case .unavailable: .red
+        case .loading: .yellow
         }
     }
 
@@ -126,18 +101,13 @@ private struct EngineStatusFooter: View {
             switch model.runner.phase {
             case .applying: return "Updating apps…"
             case .previewing, .preparingApply: return "Previewing…"
-            case .idle: return "Engine ready · Python \(model.python?.version ?? "?")"
+            case .idle: return "Engine ready"
             }
-        case .locating: return "Locating engine…"
-        case .unavailable(let title, _): return title
+        case .loading: return "Starting engine…"
         }
     }
 
     private var help: String {
-        var lines: [String] = []
-        if let location = model.engineLocation { lines.append("Engine (\(location.source.rawValue)): \(location.root.path)") }
-        if let python = model.python { lines.append("Python \(python.version): \(python.url.path)") }
-        lines.append("State: \(model.stateDirectory.path)")
-        return lines.joined(separator: "\n")
+        "State: \(model.stateDirectory.path)"
     }
 }

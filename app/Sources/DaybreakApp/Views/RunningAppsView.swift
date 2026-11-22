@@ -5,6 +5,7 @@ struct RunningAppsView: View {
     @Bindable var inventory: InventoryModel
     let config: ConfigModel
     @Environment(\.undoManager) private var undoManager
+    @ScaledMetric(relativeTo: .body) private var rowHeight = 42.0
     @State private var selection = Set<InventoryApp.ID>()
 
     var body: some View {
@@ -18,7 +19,7 @@ struct RunningAppsView: View {
                         Label("Hide Protected Apps", systemImage: "lock.slash")
                     }
                     .toggleStyle(.button)
-                    .help(inventory.hideProtected ? "Show protected system, helper and host apps" : "Hide protected apps")
+                    .help(inventory.hideProtected ? "Show protected system apps and helpers" : "Hide protected apps")
                 }
                 ToolbarItem {
                     if inventory.state.isLoading && !inventory.apps.isEmpty {
@@ -64,7 +65,7 @@ struct RunningAppsView: View {
                 ContentUnavailableView {
                     Label("Only Protected Apps Are Running", systemImage: "lock")
                 } description: {
-                    Text("Daybreak never quits protected system, helper or host apps.")
+                    Text("Daybreak keeps system apps, dedicated helpers, and itself running.")
                 } actions: {
                     Button("Show Protected Apps") { inventory.hideProtected = false }
                 }
@@ -96,6 +97,7 @@ struct RunningAppsView: View {
                             .truncationMode(.middle)
                     }
                 }
+                .frame(height: rowHeight, alignment: .leading)
                 .help("\(app.bundleID)\n\(app.path)")
                 .accessibilityElement(children: .combine)
             }
@@ -107,17 +109,20 @@ struct RunningAppsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(height: rowHeight, alignment: .leading)
                     .help(app.versionDescription)
             }
             .width(min: 70, ideal: 160, max: 240)
 
             TableColumn("Status") { app in
                 badges(for: app)
+                    .frame(height: rowHeight, alignment: .leading)
             }
             .width(min: 120, ideal: 220)
 
             TableColumn("Whitelist") { app in
                 WhitelistToggle(app: app, inventory: inventory, config: config, undoManager: undoManager)
+                    .frame(height: rowHeight)
             }
             .width(min: 64, ideal: 70, max: 80)
             .alignment(.center)
@@ -156,7 +161,7 @@ struct RunningAppsView: View {
             }
             if app.isProtected {
                 TagBadge(title: "Protected", symbol: "lock.fill", tint: .purple)
-                    .help("System, helper, updater or host app. Daybreak never quits it.")
+                    .help(app.protectionReason ?? "Daybreak keeps this app running.")
             }
             if inventory.isWhitelisted(app) {
                 TagBadge(title: "Whitelisted", symbol: "checkmark.shield.fill", tint: .teal)

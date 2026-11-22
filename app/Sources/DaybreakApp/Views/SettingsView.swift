@@ -3,24 +3,24 @@ import DaybreakKit
 import SwiftUI
 
 struct SettingsView: View {
-    enum Tab: String { case behavior, engine }
+    enum Tab: String { case general, behavior }
 
     let model: AppModel
     @State private var tab: Tab
 
     init(model: AppModel) {
         self.model = model
-        _tab = State(initialValue: model.launchOptions.settingsTab.flatMap(Tab.init(rawValue:)) ?? .behavior)
+        _tab = State(initialValue: model.launchOptions.settingsTab.flatMap(Tab.init(rawValue:)) ?? .general)
     }
 
     var body: some View {
         TabView(selection: $tab) {
+            GeneralSettingsView(model: model)
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
             BehaviorSettingsView(model: model)
-                .tabItem { Label("Behavior", systemImage: "gearshape") }
+                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Tab.behavior)
-            EngineSettingsView(model: model)
-                .tabItem { Label("Engine", systemImage: "terminal") }
-                .tag(Tab.engine)
         }
         .frame(width: 580)
         .fixedSize(horizontal: false, vertical: true)
@@ -247,46 +247,29 @@ private struct TimeZoneList: View {
 }
 
 /// App-level preferences (stored in UserDefaults, never in the engine config).
-private struct EngineSettingsView: View {
+private struct GeneralSettingsView: View {
     @Bindable var model: AppModel
+    @State private var draftStateFolder = ""
 
     var body: some View {
         Form {
-            Section("Status") {
-                LabeledContent("Engine") {
-                    switch model.engineState {
-                    case .locating: ProgressView().controlSize(.small)
-                    case .ready: Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    case .unavailable(let title, _): Label(title, systemImage: "xmark.octagon.fill").foregroundStyle(.red)
-                    }
-                }
-                if case .unavailable(_, let message) = model.engineState {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                LabeledContent("Python") {
-                    PathText(model.python.map { "\($0.version) — \($0.url.path)" } ?? "Not found")
-                }
-                LabeledContent("Engine source") {
-                    PathText(model.engineLocation.map { "\($0.source.rawValue) — \($0.root.path)" } ?? "Not found")
-                }
+            Section {
+                Toggle("Show Daybreak in the menu bar", isOn: $model.showMenuBar)
+                    .disabled(model.hideDockIcon)
+                Toggle("Hide the Dock icon", isOn: $model.hideDockIcon)
+            } header: {
+                Text("Menu Bar and Dock")
+            } footer: {
+                Text("With the Dock icon hidden, open Daybreak from the menu bar.")
             }
             Section {
-                PathField(title: "Python interpreter", prompt: "Auto-detect",
-                          path: $model.pythonOverride, choosesDirectories: false)
-                PathField(title: "Engine checkout", prompt: "Not set",
-                          path: $model.checkoutPath, choosesDirectories: true)
                 PathField(title: "State folder", prompt: "Default",
-                          path: $model.stateDirectoryPath, choosesDirectories: true)
+                          path: $draftStateFolder)
             } header: {
-                Text("Overrides")
+                Text("Local State")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: "Python 3.11+ is auto-detected in /opt/homebrew/bin, /usr/local/bin and /usr/bin. The engine bundled in the app is preferred; the checkout (the folder containing the daybreak package and .build/appbridge) is used otherwise, e.g. with “swift run”.")
-                    Text(verbatim: "The state folder is passed as --state-dir to every engine call and holds reports, the daily gate and the run lock. Default: \(HistoryStore.defaultStateDirectory.path). Use the same folder as your scheduled job so History and the daily gate agree.")
+                    Text(verbatim: "The state folder holds reports, the daily gate and the run lock. Default: \(HistoryStore.defaultStateDirectory.path). Use the same folder as your scheduled job so History and the daily gate agree.")
                 }
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,25 +283,17 @@ private struct EngineSettingsView: View {
                         Text("Available when the current run finishes.").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Apply & Re-detect") { Task { await model.bootstrap() } }
-                        .disabled(model.engineState == .locating || model.runner.isBusy)
+                    Button("Apply State Folder") {
+                        model.stateDirectoryPath = draftStateFolder
+                        Task { await model.bootstrap() }
+                    }
+                        .disabled(model.engineState == .loading || model.runner.isBusy || model.runner.pendingPlan != nil
+                                  || draftStateFolder == model.stateDirectoryPath)
                 }
             }
         }
         .formStyle(.grouped)
-    }
-}
-
-private struct PathText: View {
-    let text: String
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
-            .help(text)
+        .onAppear { draftStateFolder = model.stateDirectoryPath }
     }
 }
 
@@ -326,7 +301,6 @@ private struct PathField: View {
     let title: String
     let prompt: String
     @Binding var path: String
-    let choosesDirectories: Bool
 
     var body: some View {
         LabeledContent(title) {
@@ -353,16 +327,15 @@ private struct PathField: View {
 
     private func choose() {
         let panel = NSOpenPanel()
-        panel.canChooseDirectories = choosesDirectories
-        panel.canChooseFiles = !choosesDirectories
-        panel.canCreateDirectories = choosesDirectories
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.treatsFilePackagesAsDirectories = true
         panel.showsHiddenFiles = true
         if !path.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        } else if !choosesDirectories {
-            panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
+
         }
         if panel.runModal() == .OK, let url = panel.url { path = url.path }
     }

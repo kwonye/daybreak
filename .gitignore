@@ -2,12 +2,8 @@
 .swiftpm/
 *.xcodeproj/
 xcuserdata/
-__pycache__/
-*.py[cod]
-*.egg-info/
 dist/
 build/
-.venv/
 .DS_Store
 config.json
 *.local.json

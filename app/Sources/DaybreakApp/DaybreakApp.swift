@@ -8,11 +8,13 @@ struct DaybreakApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
+        @Bindable var model = model
         Window("Daybreak", id: "main") {
             ContentView(model: model)
                 .onAppear {
                     appDelegate.model = model
                     appDelegate.applyAppearance(model.launchOptions.appearance)
+                    if model.hideDockIcon { model.applyDockPreference() }
                 }
         }
         .defaultSize(width: 1100, height: 700)
@@ -20,6 +22,16 @@ struct DaybreakApp: App {
         .commands {
             DaybreakCommands(model: model)
         }
+
+        MenuBarExtra("Daybreak", systemImage: "sunrise", isInserted: $model.showMenuBar) {
+            MenuBarPanel(model: model)
+                .onAppear {
+                    appDelegate.model = model
+                    appDelegate.applyAppearance(model.launchOptions.appearance)
+                    if model.hideDockIcon { model.applyDockPreference() }
+                }
+        }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(model: model)
@@ -55,7 +67,7 @@ struct DaybreakCommands: Commands {
 
             Divider()
 
-            Button("Preview (Dry Run)") {
+            Button("Preview") {
                 model.selection = .run
                 Task { await model.runner.preview() }
             }
@@ -71,6 +83,10 @@ struct DaybreakCommands: Commands {
             .disabled(!model.runner.canStart)
 
             Divider()
+
+            Button("Add Whitelist Pattern…") { model.whitelistAddRequest += 1 }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(model.selection != .whitelist || !model.config.canEdit)
 
             Button("Reveal Config in Finder") { model.revealConfigInFinder() }
             Button("Reveal Reports in Finder") { model.revealStateDirectoryInFinder() }
@@ -109,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when launched as a bare executable via `swift run` (no Info.plist).
+        guard Bundle.main.bundleURL.pathExtension != "app" else { return }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
     }
@@ -123,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !(model?.isApplying ?? false)
+        !(model?.isApplying ?? false) && !(model?.showMenuBar ?? false)
     }
 
     /// Refuse to quit while an update run is in progress so its results are not lost.
@@ -131,9 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard model?.isApplying == true else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "An update run is in progress"
-        alert.informativeText = "Wait for it to finish before quitting Daybreak. The engine keeps running regardless (it is never killed), but its results would not be shown here."
+        alert.informativeText = "Daybreak needs to stay open until apps are relaunched and the report is saved."
         alert.addButton(withTitle: "Keep Running")
-        alert.addButton(withTitle: "Quit Anyway")
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateCancel : .terminateNow
+        alert.runModal()
+        return .terminateCancel
     }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 /// Per-app results of a run or a stored report.
 struct ResultsTable: View {
     let results: [RunResult]
+    @ScaledMetric(relativeTo: .body) private var rowHeight = 46.0
     @State private var selection: RunResult.ID?
     @State private var sortOrder: [KeyPathComparator<RunResult>] = []
 
@@ -35,14 +36,16 @@ struct ResultsTable: View {
                             .truncationMode(.middle)
                     }
                 }
-                .help(result.bundleID)
+                .frame(height: rowHeight, alignment: .leading)
+                .help(result.path.isEmpty ? result.bundleID : result.path)
                 .accessibilityElement(children: .combine)
             }
             .width(min: 150, ideal: 210)
 
             TableColumn("Status", value: \.status.rawValue) { result in
-                StatusBadge(status: result.status)
+                StatusBadge(status: result.status, isSelected: selection == result.id)
                     .fixedSize()
+                    .frame(height: rowHeight, alignment: .leading)
             }
             .width(min: 120, ideal: 165, max: 200)
 
@@ -51,25 +54,47 @@ struct ResultsTable: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(height: rowHeight, alignment: .leading)
                     .help(result.versionChange)
                     .foregroundStyle(result.after.isEmpty ? .secondary : .primary)
             }
             .width(min: 60, ideal: 100, max: 180)
 
             TableColumn("Backend", value: \.backend) { result in
-                Text(result.backend.isEmpty ? "—" : result.backend)
+                Text(backendLabel(result))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .frame(height: rowHeight, alignment: .leading)
             }
-            .width(min: 60, ideal: 85, max: 130)
+            .width(min: 80, ideal: 100, max: 130)
 
             TableColumn("Detail", value: \.detail) { result in
-                Text(detailText(result))
-                    .lineLimit(3)
+                Text(result.detail)
+                    .lineLimit(2)
+                    .frame(height: rowHeight, alignment: .leading)
                     .foregroundStyle(.secondary)
                     .help(detailText(result))
             }
             .width(min: 120)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let selected = rows.first(where: { $0.id == selection }), !detailText(selected).isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Divider()
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(selected.name).font(.headline)
+                            Text(detailText(selected)).font(.callout).textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                    }
+                    .frame(maxHeight: 110)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .background(.background)
+            }
         }
         .contextMenu(forSelectionType: RunResult.ID.self) { ids in
             if let id = ids.first, let result = results.first(where: { $0.id == id }) {
@@ -78,6 +103,13 @@ struct ResultsTable: View {
                     .disabled(detailText(result).isEmpty)
             }
         }
+    }
+
+    private func backendLabel(_ result: RunResult) -> String {
+        if result.backend == "restart-only" {
+            return result.status == .unsupported ? "No updater" : "Restart only"
+        }
+        return result.backend.isEmpty ? "—" : result.backend
     }
 
     private func detailText(_ result: RunResult) -> String {

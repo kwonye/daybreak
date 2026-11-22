@@ -67,14 +67,21 @@ public struct InventoryApp: Decodable, Sendable, Hashable, Identifiable {
 
     public var isSelf: Bool { bundleID == Self.ownBundleID }
 
-    static let protectedPrefixes = ["com.openai.", "org.sparkle-project.Sparkle.", "com.google.GoogleUpdater", "io.tailscale."]
+    public var isProtected: Bool { engineProtected ?? (protectionReason != nil) }
 
-    /// Engine value when present, else the same rule as `daybreak.models.protected`.
-    public var isProtected: Bool {
-        if let engineProtected { return engineProtected }
-        return Self.protectedPrefixes.contains { bundleID.hasPrefix($0) }
-            || ["/System/", "/usr/", "/Library/Apple/"].contains { path.hasPrefix($0) }
-            || path.contains("/Contents/")
+    public var protectionReason: String? { Self.protectionReason(bundleID: bundleID, path: path) }
+
+    static func protectionReason(bundleID: String, path: String) -> String? {
+        if bundleID == ownBundleID || bundleID.hasPrefix(ownBundleID + ".") { return "Daybreak protects itself" }
+        if ["/System/", "/usr/", "/Library/Apple/"].contains(where: path.hasPrefix) { return "macOS system app" }
+        if bundleID == "com.openai.sky.CUAService" || path.contains("/Contents/")
+        || path.hasPrefix("/Library/SystemExtensions/") {
+            return "App helper or system extension"
+        }
+        if ["org.sparkle-project.Sparkle.", "com.google.GoogleUpdater"].contains(where: bundleID.hasPrefix) {
+            return "Dedicated updater service"
+        }
+        return nil
     }
 
     /// Local whitelist evaluation OR'd with the engine's report (the engine may know about
@@ -182,6 +189,9 @@ public struct RunResult: Decodable, Sendable, Hashable, Identifiable {
     public let name: String
     public let status: ResultStatus
     public let backend: String
+    public let path: String
+    public let isProtected: Bool
+    let originalLaunches: [Double]
     public let before: String
     public let after: String
     public let beforeBuild: String
@@ -199,6 +209,7 @@ public struct RunResult: Decodable, Sendable, Hashable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case bundleID = "bundle_id", name, status, backend, before, after
         case beforeBuild = "before_build", afterBuild = "after_build", updateOutcome = "update_outcome"
+        case path, protected, originalLaunches = "original_launches"
         case detail, oldPIDs = "old_pids", newPIDs = "new_pids", verification
     }
 
@@ -206,6 +217,8 @@ public struct RunResult: Decodable, Sendable, Hashable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         bundleID = c.value(.bundleID, default: "")
         name = c.value(.name, default: bundleID)
+        path = c.value(.path, default: "")
+        originalLaunches = c.value(.originalLaunches, default: [])
         status = c.value(.status, default: ResultStatus(rawValue: "unknown"))
         backend = c.value(.backend, default: "")
         before = c.value(.before, default: "")
@@ -214,6 +227,7 @@ public struct RunResult: Decodable, Sendable, Hashable, Identifiable {
         afterBuild = c.value(.afterBuild, default: "")
         updateOutcome = c.value(.updateOutcome, default: "")
         detail = c.value(.detail, default: "")
+        isProtected = c.value(.protected, default: status == .excluded && detail == "Protected host/system app")
         oldPIDs = c.value(.oldPIDs, default: [])
         newPIDs = c.value(.newPIDs, default: [])
         verification = c.value(.verification, default: "")
@@ -290,7 +304,7 @@ public struct EngineErrorPayload: Decodable, Sendable {
 }
 
 public enum ISODate {
-    /// Parses Python `isoformat()` timestamps, which may carry microseconds.
+    /// Parses ISO 8601 report timestamps, including fractional seconds.
     public static func parse(_ string: String) -> Date? {
         let withFraction = ISO8601DateFormatter()
         withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

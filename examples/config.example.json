@@ -3,7 +3,7 @@
   "hour": 8,
   "quit_timeout_seconds": 60,
   "restart_current": true,
-  "restart_unmanaged": true,
+  "restart_unmanaged": false,
   "whitelist": ["com.example.DoNotInterrupt", "com.jetbrains.*"],
   "apps": {
     "com.docker.docker": {

@@ -7,6 +7,7 @@ struct WhitelistView: View {
     let config: ConfigModel
     let inventory: InventoryModel
     let revealConfig: () -> Void
+    let addRequest: Int
 
     @Environment(\.undoManager) private var undoManager
     @State private var selection = Set<String>()
@@ -46,6 +47,9 @@ struct WhitelistView: View {
                 Button("OK") { openPanelError = nil }
             } message: {
                 Text(openPanelError ?? "")
+            }
+            .onChange(of: addRequest) {
+                if config.canEdit { sheet = .manual }
             }
             .onChange(of: config.entries) {
                 selection.formIntersection(config.patterns)
@@ -114,7 +118,6 @@ struct WhitelistView: View {
             Button("Installed App…", action: chooseInstalledApp)
             Divider()
             Button("Bundle ID or Pattern…") { sheet = .manual }
-                .keyboardShortcut("n", modifiers: [.command])
         } label: {
             Label("Add", systemImage: "plus")
         }

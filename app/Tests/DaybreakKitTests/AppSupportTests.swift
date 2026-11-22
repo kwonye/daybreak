@@ -54,34 +54,6 @@ import Testing
         #expect(AppInfo(infoDictionary: ["CFBundleShortVersionString": "1.2", "CFBundleVersion": "42"]).displayVersion == "1.2 (42)")
     }
 
-    @Test func pyprojectVersionIsTheSingleSource() throws {
-        let text = """
-        [build-system]
-        requires = ["setuptools>=68"]
-        version = "9.9.9"
-
-        [project]
-        name = "daybreak-macos"
-        version = "0.1.0"
-        requires-python = ">=3.11"
-        """
-        #expect(AppInfo.projectVersion(fromPyproject: text) == "0.1.0")
-        #expect(AppInfo.projectVersion(fromPyproject: "[project]\nversion = '2.0'\n") == "2.0")
-        #expect(AppInfo.projectVersion(fromPyproject: "[project]\nversion = \"1.0.0rc1\"\n") == nil)
-        #expect(AppInfo.projectVersion(fromPyproject: "[tool.x]\nversion = \"1.0\"\n") == nil)
-
-        // The repository's own pyproject.toml must yield a valid bundle version.
-        let pyproject = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("pyproject.toml")
-        let version = AppInfo.projectVersion(fromPyproject: try String(contentsOf: pyproject, encoding: .utf8))
-        #expect(version != nil)
-    }
-
-    @Test func bundleVersionValidation() {
-        for valid in ["1", "1.2", "1.2.3", "10.0.15"] { #expect(AppInfo.isValidBundleVersion(valid)) }
-        for invalid in ["", "1.2.3.4", "1..2", "v1.0", "1.0-beta", "١.٢"] { #expect(!AppInfo.isValidBundleVersion(invalid)) }
-    }
 }
 
 @Suite struct LaunchOptionsTests {

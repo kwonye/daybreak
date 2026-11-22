@@ -14,12 +14,9 @@ jobs:
   mac-app:
     runs-on: macos-15
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
       - name: Check version and required secrets
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -36,16 +33,15 @@ jobs:
             echo "::error::Missing repository secrets:$missing"
             exit 1
           fi
-          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          version="$(./scripts/version)"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $version"
             exit 1
           fi
       - name: Test
         run: |
-          python -m unittest discover -s tests
-          cd app && swift build && swift test
+          swift test --package-path app
       - name: Import signing certificate into a temporary keychain
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}

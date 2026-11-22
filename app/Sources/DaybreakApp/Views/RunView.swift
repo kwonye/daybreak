@@ -3,59 +3,41 @@ import SwiftUI
 
 struct RunView: View {
     @Bindable var runner: RunModel
-    let isEngineReady: Bool
+    @State private var showProtected = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            content
-        }
-        .navigationTitle("Run")
-        .sheet(item: $runner.pendingPlan) { plan in
-            ApplyConfirmationSheet(plan: plan) {
-                Task { await runner.confirmApply(plan) }
-            } cancel: {
-                runner.cancelApply()
+        content
+            .navigationTitle("Run")
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        Task { await runner.preview() }
+                    } label: {
+                        Label("Preview", systemImage: "eye")
+                    }
+                    .disabled(!runner.canStart)
+                    .help("Show what would happen without changing anything (⇧⌘P)")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await runner.prepareApply() }
+                    } label: {
+                        Label("Update Now…", systemImage: "arrow.triangle.2.circlepath")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!runner.canStart)
+                    .help("Review and confirm before any app is quit (⇧⌘U)")
+                }
             }
-        }
-        .alert("Nothing to Update", isPresented: $runner.nothingToApply) {
-            Button("OK") {}
-        } message: {
-            Text("The preview found no running apps that Daybreak would quit and relaunch. Every running app is protected, whitelisted, or blocked by configuration.")
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Update Running Apps").font(.title2.weight(.semibold))
-                Text("Preview is read-only. Update Now checks each supported updater, then gracefully quits and relaunches apps after you confirm. Apps are never force-quit.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            .sheet(item: $runner.pendingPlan) { plan in
+                ApplyConfirmationSheet(plan: plan, runner: runner)
             }
-            Spacer(minLength: 12)
-            Button {
-                Task { await runner.preview() }
-            } label: {
-                Label("Preview (Dry Run)", systemImage: "eye")
+            .alert("Nothing to Update", isPresented: $runner.nothingToApply) {
+                Button("OK") {}
+            } message: {
+                Text("There are no eligible running apps in this preview. The results explain why each app was skipped.")
             }
-            .controlSize(.large)
-            .disabled(!runner.canStart)
-            .help("Show what would happen without changing anything (⇧⌘P)")
-
-            Button {
-                Task { await runner.prepareApply() }
-            } label: {
-                Label("Update Now…", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-            .disabled(!runner.canStart)
-            .help("Review and confirm before any app is quit (⇧⌘U)")
-        }
-        .padding(20)
     }
 
     @ViewBuilder
@@ -79,29 +61,50 @@ struct RunView: View {
                 Task { await runner.preview() }
             }
         } else if let outcome = runner.outcome {
+            let results = outcome.report.results
+            let protected = results.filter(\.isProtected)
+            let available = results.filter { !$0.isProtected }
+            let visible = available.filter(\.status.needsAttention) + available.filter { $0.status == .planned }
+                + available.filter { !$0.status.needsAttention && $0.status != .planned }
             VStack(alignment: .leading, spacing: 0) {
-                OutcomeHeader(outcome: outcome, finishedAt: runner.finishedAt)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                if outcome.report.results.isEmpty {
-                    ContentUnavailableView("No Results", systemImage: "tray",
-                                           description: Text("The engine returned no per-app results."))
+                HStack(alignment: .top, spacing: 10) {
+                    OutcomeHeader(outcome: outcome, finishedAt: runner.finishedAt)
+                    Spacer(minLength: 12)
+                    if !protected.isEmpty {
+                        Toggle("Show protected apps", isOn: $showProtected)
+                            .toggleStyle(.checkbox)
+                            .fixedSize()
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                if results.isEmpty {
+                    ContentUnavailableView("No Results", systemImage: "tray")
+                } else if visible.isEmpty && !showProtected {
+                    ContentUnavailableView("No Apps in Scope", systemImage: "checkmark.shield",
+                                           description: Text("Show protected apps to see why each app was skipped."))
                 } else {
-                    ResultsTable(results: outcome.report.results)
+                    ResultsTable(results: showProtected ? visible + protected : visible)
                 }
             }
-        } else if !isEngineReady {
-            ContentUnavailableView("Engine Unavailable", systemImage: "exclamationmark.triangle",
-                                   description: Text("Fix the engine setup in Settings to preview or run updates."))
         } else {
             ContentUnavailableView {
                 Label("No Run Yet", systemImage: "sunrise")
             } description: {
                 Text("Preview to see what Daybreak would do for each running app.")
             } actions: {
-                Button("Preview (Dry Run)") { Task { await runner.preview() } }
+                if #available(macOS 26, *) {
+                    previewButton.buttonStyle(.glassProminent)
+                } else {
+                    previewButton.buttonStyle(.borderedProminent)
+                }
             }
         }
+    }
+
+    private var previewButton: some View {
+        Button("Preview") { Task { await runner.preview() } }
+            .disabled(!runner.canStart)
     }
 }
 
@@ -132,69 +135,78 @@ private struct OutcomeHeader: View {
     }
 
     private var title: String {
-        if !outcome.report.apply { return "Dry-run preview — nothing was changed" }
+        if !outcome.report.apply { return "Preview complete" }
         return outcome.needsAttention
             ? "Update finished — \(outcome.report.attentionCount) app(s) need attention"
             : "Update finished"
     }
 }
 
-/// The only path to `--apply`. States plainly what will happen and to how many apps.
-struct ApplyConfirmationSheet: View {
+private struct ApplyConfirmationSheet: View {
     let plan: ApplyPlan
-    let confirm: () -> Void
-    let cancel: () -> Void
+    let runner: RunModel
+    @State private var selectedIDs: Set<RunResult.ID>
     @Environment(\.dismiss) private var dismiss
+
+    init(plan: ApplyPlan, runner: RunModel) {
+        self.plan = plan
+        self.runner = runner
+        _selectedIDs = State(initialValue: Set(plan.affected.map(\.id)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(.orange)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Quit, Update and Relaunch \(plan.affected.count) \(plan.affected.count == 1 ? "App" : "Apps")?")
-                        .font(.headline)
-                    Text("Daybreak will gracefully quit each app below, install available updates where a supported updater exists, and relaunch it. Unsaved work may prompt you to save; apps that refuse to quit are deferred, never force-quit. Browser tabs, meetings and other in-app state may not be restored.")
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            Label("Review Apps to Update", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+            Text("Choose which apps Daybreak may quit and relaunch. Supported updaters will check for updates. Save prompts can defer apps, and some in-app state may be lost.")
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
             List(plan.affected) { result in
-                HStack(spacing: 8) {
-                    BundleIconView(bundleID: result.bundleID, size: 20)
-                    Text(result.name).lineLimit(1)
-                    Text(result.bundleID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Text(result.backend).font(.caption).foregroundStyle(.secondary)
+                Toggle(isOn: selection(for: result.id)) {
+                    HStack(spacing: 8) {
+                        AppIconView(path: result.path, size: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.name).lineLimit(1)
+                            Text(result.path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        Text(result.backend == "restart-only" ? "Restart only" : result.backend)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .help(result.path)
                 }
+                .toggleStyle(.checkbox)
+                .accessibilityLabel(result.name)
             }
             .listStyle(.bordered(alternatesRowBackgrounds: true))
             .frame(minHeight: 120, maxHeight: 240)
-            if !plan.skipped.isEmpty {
-                Text("\(plan.skipped.count) other running \(plan.skipped.count == 1 ? "app is" : "apps are") protected, whitelisted, blocked by configuration, or Daybreak itself, and will not be touched. Apps launched after you confirm are not included.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+
             HStack {
+                Button(selectedIDs.isEmpty ? "Select All" : "Deselect All") {
+                    selectedIDs = selectedIDs.isEmpty ? Set(plan.affected.map(\.id)) : []
+                }
                 Spacer()
-                Button("Cancel", role: .cancel) {
-                    cancel()
-                    dismiss()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Quit & Update \(selectedIDs.count) \(selectedIDs.count == 1 ? "App" : "Apps")", role: .destructive) {
+                    Task { await runner.confirmApply(plan, choosing: selectedIDs) }
                 }
-                .keyboardShortcut(.cancelAction)
-                Button("Quit & Update \(plan.affected.count) \(plan.affected.count == 1 ? "App" : "Apps")", role: .destructive) {
-                    confirm()
-                }
+                .disabled(selectedIDs.isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 500)
+        .frame(width: 540)
+    }
+
+    private func selection(for id: RunResult.ID) -> Binding<Bool> {
+        Binding(get: { selectedIDs.contains(id) }, set: { selected in
+            if selected { selectedIDs.insert(id) } else { selectedIDs.remove(id) }
+        })
     }
 }

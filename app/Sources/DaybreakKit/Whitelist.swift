@@ -2,14 +2,11 @@ import Darwin
 import Foundation
 
 /// Whitelist matching that mirrors the engine contract: each entry is an exact bundle ID or a
-/// shell-style glob (`*`, `?`, `[...]`) matched case-sensitively against the whole bundle ID,
-/// like Python's `fnmatch.fnmatchcase`.
 public enum Whitelist {
     public static func matches(pattern: String, bundleID: String) -> Bool {
         if pattern == bundleID { return true }
         guard isGlob(pattern) else { return false }
-        // FNM_NOESCAPE: Python's fnmatch has no backslash escaping. No FNM_PATHNAME/FNM_PERIOD, so
-        // `*` matches any characters including dots, as in fnmatchcase.
+        // Treat backslashes and dots literally, and allow wildcards to span dots.
         return fnmatch(pattern, bundleID, FNM_NOESCAPE) == 0
     }
 

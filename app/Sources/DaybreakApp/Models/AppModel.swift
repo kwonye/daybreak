@@ -57,20 +57,19 @@ enum LoadState: Equatable {
     }
 }
 
-/// Root state: app preferences, engine discovery, and the feature view models.
+/// Root state: app preferences, the native engine, and the feature view models.
 @MainActor
 @Observable
 final class AppModel {
     enum EngineState: Equatable {
-        case locating
+        case loading
         case ready
-        case unavailable(title: String, message: String)
     }
 
     private enum DefaultsKey {
-        static let pythonPath = "pythonPath"
-        static let checkoutPath = "engineCheckoutPath"
         static let stateDirectory = "stateDirectory"
+        static let menuBar = "showMenuBar"
+        static let hideDock = "hideDockIcon"
         static let selection = "selectedPane"
     }
 
@@ -84,18 +83,34 @@ final class AppModel {
         }
     }
 
-    // App-only preferences live in UserDefaults (co.kwon.daybreak), never in the engine config.
-    // Writes happen only on a real change, so `-pythonPath …` style launch arguments (the
-    // NSArgumentDomain) are honoured for one launch without being persisted.
-
-    /// Interpreter override from Settings (empty = auto-detect).
-    var pythonOverride: String {
-        didSet { if pythonOverride != oldValue { UserDefaults.standard.set(pythonOverride, forKey: DefaultsKey.pythonPath) } }
+    var showMenuBar: Bool {
+        didSet {
+            guard showMenuBar != oldValue else { return }
+            UserDefaults.standard.set(showMenuBar, forKey: DefaultsKey.menuBar)
+            if !showMenuBar && hideDockIcon { hideDockIcon = false }
+        }
     }
 
-    /// Engine checkout fallback from Settings (used when the bundle has no embedded engine).
-    var checkoutPath: String {
-        didSet { if checkoutPath != oldValue { UserDefaults.standard.set(checkoutPath, forKey: DefaultsKey.checkoutPath) } }
+    var hideDockIcon: Bool {
+        didSet {
+            guard hideDockIcon != oldValue else { return }
+            if hideDockIcon && !showMenuBar { showMenuBar = true }
+            UserDefaults.standard.set(hideDockIcon, forKey: DefaultsKey.hideDock)
+            applyDockPreference()
+        }
+    }
+
+    func applyDockPreference() {
+        let policy: NSApplication.ActivationPolicy = hideDockIcon ? .accessory : .regular
+        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+    }
+
+    @ObservationIgnored private var hasStarted = false
+
+    func startIfNeeded() async {
+        guard !hasStarted else { return }
+        hasStarted = true
+        await bootstrap()
     }
 
     /// Custom `--state-dir` (empty = engine default ~/Library/Application Support/Daybreak).
@@ -107,13 +122,12 @@ final class AppModel {
 
     /// Incremented to ask the main window to open Settings (used by the snapshot QA mode).
     var settingsRequest = 0
+    var whitelistAddRequest = 0
 
-    private(set) var engineState: EngineState = .locating
-    private(set) var python: PythonInterpreter?
-    private(set) var engineLocation: EngineLocation?
+    private(set) var engineState: EngineState = .loading
     private(set) var client: EngineClient?
 
-    let configStore = ConfigStore()
+    let configStore: ConfigStore
     let launchOptions: LaunchOptions
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
     @ObservationIgnored private(set) lazy var inventory = InventoryModel(app: self)
@@ -123,8 +137,10 @@ final class AppModel {
     init(launchOptions: LaunchOptions = LaunchOptions(arguments: CommandLine.arguments)) {
         let defaults = UserDefaults.standard
         self.launchOptions = launchOptions
-        pythonOverride = defaults.string(forKey: DefaultsKey.pythonPath) ?? ""
-        checkoutPath = defaults.string(forKey: DefaultsKey.checkoutPath) ?? ""
+        configStore = ConfigStore(url: launchOptions.configPath.map { URL(fileURLWithPath: $0) } ?? ConfigStore.defaultURL)
+        let hideDock = defaults.bool(forKey: DefaultsKey.hideDock)
+        hideDockIcon = hideDock
+        showMenuBar = hideDock || (defaults.object(forKey: DefaultsKey.menuBar) as? Bool ?? true)
         stateDirectoryPath = defaults.string(forKey: DefaultsKey.stateDirectory) ?? ""
         let stored = defaults.string(forKey: DefaultsKey.selection).flatMap(SidebarSection.init(rawValue:))
         selection = launchOptions.pane.flatMap(SidebarSection.init(launchName:)) ?? stored ?? .runningApps
@@ -132,36 +148,20 @@ final class AppModel {
 
     var isEngineReady: Bool { engineState == .ready }
 
-    /// Locates python3 and the engine, then loads config, inventory and history.
+    /// Loads local configuration, inventory and history through the native engine.
     /// Never runs while a run is in flight (it would swap the client underneath it).
     func bootstrap() async {
-        guard !runner.isBusy else { return }
-        engineState = .locating
+        guard !runner.isBusy, runner.pendingPlan == nil else { return }
+        engineState = .loading
         client = nil
         config.reload()
 
-        let location = EngineLocator.locate(
-            bundleResources: Bundle.main.resourceURL,
-            checkoutPath: checkoutPath,
-            executable: Bundle.main.executableURL)
-        let interpreter = await PythonLocator.locate(override: pythonOverride)
-        engineLocation = try? location.get()
-        python = try? interpreter.get()
-
-        switch (location, interpreter) {
-        case (.failure(let error), _):
-            engineState = .unavailable(title: "Engine Not Found", message: error.localizedDescription)
-        case (_, .failure(let error)):
-            engineState = .unavailable(title: "Python 3.11+ Not Found", message: error.localizedDescription)
-        case (.success(let location), .success(let interpreter)):
-            client = EngineClient(python: interpreter, engine: location, configURL: configStore.url,
-                                  stateDirectory: stateDirectory)
-            engineState = .ready
-            async let inventoryLoad: Void = inventory.refresh()
-            async let historyLoad: Void = history.refresh()
-            _ = await (inventoryLoad, historyLoad)
-            if launchOptions.autoPreview { await runner.preview() }
-        }
+        client = EngineClient(configURL: configStore.url, stateDirectory: stateDirectory)
+        engineState = .ready
+        async let inventoryLoad: Void = inventory.refresh()
+        async let historyLoad: Void = history.refresh()
+        _ = await (inventoryLoad, historyLoad)
+        if launchOptions.autoPreview { await runner.preview() }
     }
 
     /// ⌘R: refreshes whatever the selected pane shows.
@@ -171,7 +171,8 @@ final class AppModel {
         case .whitelist:
             config.reload()
             await inventory.refresh()
-        case .runningApps, .run: await inventory.refresh()
+        case .runningApps: await inventory.refresh()
+        case .run: await runner.preview()
         }
     }
 

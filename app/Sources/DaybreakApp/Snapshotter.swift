@@ -4,7 +4,7 @@ import Foundation
 
 /// QA aid for `--snapshot DIR`: renders the app's *own* windows into PNGs (via
 /// `cacheDisplay`, no screen recording) for each pane, then the Settings window, then quits.
-/// It only reads: combine with `--preview` to populate the Run pane with a dry run.
+/// It only reads: combine with `--preview` to populate the Run pane with a preview.
 @MainActor
 enum Snapshotter {
     static func run(model: AppModel, directory: String) async {
@@ -14,7 +14,7 @@ enum Snapshotter {
 
         // Wait (up to ~60 s) for discovery, inventory, history and any requested preview.
         for _ in 0..<120 {
-            let settled = model.engineState != .locating && !model.inventory.state.isLoading
+            let settled = model.engineState != .loading && !model.inventory.state.isLoading
                 && !model.history.state.isLoading && !model.runner.isBusy
                 && (!model.launchOptions.autoPreview || model.runner.outcome != nil || model.runner.error != nil
                     || !model.isEngineReady)
@@ -40,7 +40,7 @@ enum Snapshotter {
             settings = newWindow(excluding: known)
         }
         if let settings {
-            write(settings, to: output.appendingPathComponent("settings-\(model.launchOptions.settingsTab ?? "behavior")\(suffix).png"))
+            write(settings, to: output.appendingPathComponent("settings-\(model.launchOptions.settingsTab ?? "general")\(suffix).png"))
         }
 
         known = Set(NSApp.windows.map(ObjectIdentifier.init))

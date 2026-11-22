@@ -86,28 +86,26 @@ struct HistoryView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let message = history.state.errorMessage, history.latest == nil {
-            ErrorStateView(title: "Couldn’t Load History", message: message) {
-                Task { await history.refresh() }
+        switch selection {
+        case .latest, .none:
+            if let latest = history.latest {
+                ReportDetail(report: latest, source: "latest.json")
+            } else if let message = history.state.errorMessage {
+                ErrorStateView(title: "Couldn’t Load the Latest Report", message: message) {
+                    Task { await history.refresh() }
+                }
+            } else {
+                LoadingView(message: "Loading last run…")
             }
-        } else {
-            switch selection {
-            case .latest, .none:
-                if let latest = history.latest {
-                    ReportDetail(report: latest, source: "latest.json")
+        case .stored(let url):
+            if let run = history.runs.first(where: { $0.url == url }) {
+                if let report = run.report {
+                    ReportDetail(report: report, source: url.lastPathComponent)
                 } else {
-                    LoadingView(message: "Loading last run…")
+                    ErrorStateView(title: "Unreadable Report", message: run.error ?? "Unknown error")
                 }
-            case .stored(let url):
-                if let run = history.runs.first(where: { $0.url == url }) {
-                    if let report = run.report {
-                        ReportDetail(report: report, source: url.lastPathComponent)
-                    } else {
-                        ErrorStateView(title: "Unreadable Report", message: run.error ?? "Unknown error")
-                    }
-                } else {
-                    ContentUnavailableView("Report Not Found", systemImage: "doc.questionmark")
-                }
+            } else {
+                ContentUnavailableView("Report Not Found", systemImage: "doc.questionmark")
             }
         }
     }
@@ -121,7 +119,7 @@ private struct StoredRunRow: View {
             Text(run.date.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? run.url.lastPathComponent)
             if let report = run.report {
                 HStack(spacing: 4) {
-                    Text("\(report.results.count) apps")
+                    Text("\(report.results.count) \(report.results.count == 1 ? "app" : "apps")")
                     if report.attentionCount > 0 {
                         Text("·")
                         Label("\(report.attentionCount)", systemImage: "exclamationmark.triangle.fill")
@@ -142,11 +140,12 @@ private struct StoredRunRow: View {
 private struct ReportDetail: View {
     let report: RunReport
     let source: String
+    @State private var showProtected = false
 
     var body: some View {
         if report.isNeverRun {
             ContentUnavailableView("No Runs Yet", systemImage: "clock",
-                                   description: Text("Reports appear here after the first real update run. Dry runs are not recorded."))
+                                   description: Text("Reports appear here after the first real update run. Preview results stay in the Run pane."))
         } else if let status = report.status, report.results.isEmpty {
             ContentUnavailableView("No Results", systemImage: "tray",
                                    description: Text("The engine reported status “\(status)”."))
@@ -155,15 +154,29 @@ private struct ReportDetail: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(report.startedDate.map { $0.formatted(date: .complete, time: .shortened) } ?? "Unknown date")
                         .font(.headline)
-                    Text([report.apply ? "Applied run" : "Dry run", report.timezone, source]
+                    Text([report.apply ? "Applied run" : "Preview", report.timezone, source]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ResultsSummary(report: report)
+                    HStack(alignment: .top) {
+                        ResultsSummary(report: report)
+                        Spacer(minLength: 12)
+                        if report.results.contains(where: \.isProtected) {
+                            Toggle("Show protected apps", isOn: $showProtected)
+                                .toggleStyle(.checkbox)
+                                .fixedSize()
+                        }
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                ResultsTable(results: report.results)
+                let results = report.results.filter { showProtected || !$0.isProtected }
+                if results.isEmpty && !report.results.isEmpty {
+                    ContentUnavailableView("Only Protected Apps", systemImage: "checkmark.shield",
+                                           description: Text("Show protected apps to see the full report."))
+                } else {
+                    ResultsTable(results: results)
+                }
             }
         }
     }

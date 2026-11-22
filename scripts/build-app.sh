@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds .build/Daybreak.app (universal arm64 + x86_64) with the Python engine and the appbridge
-# helper bundled, signs it with the hardened runtime, and writes .build/dist/Daybreak-<version>.zip.
+# Builds .build/Daybreak.app (universal arm64 + x86_64) with the native CLI
+# bundled, signs it with the hardened runtime, and writes .build/dist/Daybreak-<version>.zip.
 # It never installs, launches, schedules or updates anything.
 #
 # Environment:
@@ -15,48 +15,38 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 APP="$ROOT/.build/Daybreak.app"
 DIST="$ROOT/.build/dist"
-WORK="$ROOT/.build/app-build"
 ARCHS="${ARCHS:-arm64 x86_64}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 MIN_MACOS=14.0
-
-# Single version source: [project] version in pyproject.toml.
-VERSION="$(awk '
-    /^\[/ { in_project = ($0 == "[project]") }
-    in_project && /^version[[:space:]]*=/ { gsub(/^version[[:space:]]*=[[:space:]]*"|".*$/, ""); print; exit }
-' pyproject.toml)"
-if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
-    printf 'error: pyproject.toml [project] version "%s" is not a valid bundle version\n' "$VERSION" >&2
+MACOS_SDK="$(xcrun --sdk macosx --show-sdk-version)"
+if [ "${MACOS_SDK%%.*}" -lt 26 ]; then
+    printf 'error: Daybreak.app requires the macOS 26 SDK or newer (found %s)\n' "$MACOS_SDK" >&2
     exit 1
 fi
 
-rm -rf "$WORK"
-mkdir -p "$WORK"
+VERSION="$(./scripts/version)"
 
-# appbridge: one slice per architecture, then lipo.
-set --
-for arch in $ARCHS; do
-    xcrun swiftc -O -target "$arch-apple-macos$MIN_MACOS" native/AppBridge.swift -o "$WORK/appbridge-$arch"
-    set -- "$@" "$WORK/appbridge-$arch"
-done
-lipo -create "$@" -output "$WORK/appbridge"
-
-# App: SwiftPM multi-arch release build.
+# Some SwiftPM toolchains stamp the deployment target as the linked SDK.
+# Set both explicitly so macOS enables Liquid Glass while keeping macOS 14 support.
 set --
 for arch in $ARCHS; do set -- "$@" --arch "$arch"; done
-(cd app && swift build -c release --product DaybreakApp "$@")
+set -- "$@" -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$MACOS_SDK"
+(cd app && swift build -c release --product DaybreakApp "$@" && swift build -c release --product daybreak "$@")
 BIN_DIR="$(cd app && swift build -c release "$@" --show-bin-path)"
 
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/daybreak"
-cp "$BIN_DIR/DaybreakApp" "$APP/Contents/MacOS/Daybreak"
-cp "$WORK/appbridge" "$APP/Contents/Resources/appbridge"
-cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-# Engine sources only: no caches or bytecode (the bundle is sealed; the app runs python -B).
-for file in daybreak/*.py; do
-    cp "$file" "$APP/Contents/Resources/daybreak/"
-done
+if ! xcrun vtool -show-build "$BIN_DIR/DaybreakApp" | awk '
+    $1 == "sdk" { count++; split($2, version, "."); if (version[1] < 26) outdated = 1 }
+    END { exit (!count || outdated) }
+'; then
+    printf 'error: Daybreak.app was not linked for Liquid Glass (macOS SDK 26+)\n' >&2
+    exit 1
+fi
 
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+cp "$BIN_DIR/DaybreakApp" "$APP/Contents/MacOS/Daybreak"
+cp "$BIN_DIR/daybreak" "$APP/Contents/Helpers/daybreak"
+cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 YEAR="$(date +%Y)"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,11 +83,11 @@ if [ "$IDENTITY" = "-" ]; then
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
-codesign "$@" --identifier co.kwon.daybreak.appbridge "$APP/Contents/Resources/appbridge"
+codesign "$@" --identifier co.kwon.daybreak.cli "$APP/Contents/Helpers/daybreak"
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
-for binary in "$APP/Contents/MacOS/Daybreak" "$APP/Contents/Resources/appbridge"; do
+for binary in "$APP/Contents/MacOS/Daybreak" "$APP/Contents/Helpers/daybreak"; do
     printf '%s: %s\n' "$(basename "$binary")" "$(lipo -archs "$binary")"
 done
 
