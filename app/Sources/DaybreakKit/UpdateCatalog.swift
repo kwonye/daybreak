@@ -25,6 +25,7 @@ public struct UpdateItem: Identifiable, Sendable, Equatable {
     public var id: String { path ?? "macos" }
     public let installedVersion: String
     public let isRunning: Bool
+    public let isMacAppStoreApp: Bool
     public let repository: ReleaseRepository?
     public internal(set) var status: Status
     public internal(set) var action: Action?
@@ -88,7 +89,7 @@ struct UpdateCatalog: Sendable {
 
     private var system: UpdateItem {
         UpdateItem(name: "macOS", bundleID: nil, path: nil, installedVersion: Self.installedOSVersion, isRunning: true,
-                   repository: nil, status: .readyToCheck, action: .openSystemSettings)
+                   isMacAppStoreApp: false, repository: nil, status: .readyToCheck, action: .openSystemSettings)
     }
 
     private func repository(for app: ManagedApp) -> ReleaseRepository? {
@@ -124,7 +125,8 @@ struct UpdateCatalog: Sendable {
     private func item(for app: ManagedApp, microsoft: [String: String]) -> (UpdateItem, Route) {
         var item = UpdateItem(name: app.name, bundleID: app.bundleID, path: app.path,
                               installedVersion: app.metadata.version.isEmpty ? app.metadata.build : app.metadata.version,
-                              isRunning: !app.processes.isEmpty, repository: repository(for: app),
+                              isRunning: !app.processes.isEmpty, isMacAppStoreApp: app.metadata.hints.contains("app-store"),
+                              repository: repository(for: app),
                               status: .readyToCheck, action: nil)
         if config.whitelisted(app.bundleID) {
             item.status = .excluded
@@ -223,7 +225,8 @@ struct UpdateCatalog: Sendable {
             case .updated, .updatedAndRelaunched, .unchanged, .checkedAndRelaunched, .current:
                 result = UpdateItem(name: target.name, bundleID: target.bundleID, path: target.path,
                                     installedVersion: outcome.after.isEmpty ? target.installedVersion : outcome.after,
-                                    isRunning: target.isRunning, repository: target.repository,
+                                    isRunning: target.isRunning, isMacAppStoreApp: target.isMacAppStoreApp,
+                                    repository: target.repository,
                                     status: .current, action: nil)
                 if outcome.status == .unchanged || (outcome.status == .checkedAndRelaunched && outcome.updateOutcome != "no_update") {
                     result.status = .inconclusive

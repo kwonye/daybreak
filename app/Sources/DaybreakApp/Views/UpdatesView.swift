@@ -27,14 +27,19 @@ struct UpdatesView: View {
             } else if visible.isEmpty && !search.isEmpty {
                 ContentUnavailableView.search(text: search)
             } else {
+                let items = visible.filter { !$0.isMacAppStoreApp }
+                let storeApps = visible.filter(\.isMacAppStoreApp)
                 List {
-                    section("Updates available", items: visible.filter { $0.status == .available })
-                    section("Newer releases", items: visible.filter { $0.status == .newerRelease })
-                    section("System", items: visible.filter { $0.path == nil && $0.status != .available })
-                    section("Other apps", items: visible.filter {
+                    section("Updates available", items: items.filter { $0.status == .available })
+                    section("Newer releases", items: items.filter { $0.status == .newerRelease })
+                    section("System", items: items.filter { $0.path == nil && $0.status != .available })
+                    section("Mac App Store", items: storeApps.filter { $0.status == .available }
+                            + storeApps.filter { $0.status == .newerRelease }
+                            + storeApps.filter { $0.status != .available && $0.status != .newerRelease })
+                    section("Other apps", items: items.filter {
                         $0.path != nil && $0.status != .available && $0.status != .newerRelease && $0.status != .current
                     })
-                    section("Up to date", items: visible.filter { $0.path != nil && $0.status == .current })
+                    section("Up to date", items: items.filter { $0.path != nil && $0.status == .current })
                 }
                 .listStyle(.inset)
                 .accessibilityIdentifier("updates.list")
