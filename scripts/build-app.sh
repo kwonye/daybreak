@@ -30,7 +30,13 @@ VERSION="$(./scripts/version)"
 # Set both explicitly so macOS enables Liquid Glass while keeping macOS 14 support.
 set --
 for arch in $ARCHS; do set -- "$@" --arch "$arch"; done
-set -- "$@" -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$MACOS_SDK"
+XCODE_MAJOR="$(xcodebuild -version | awk '/^Xcode / { split($2, v, "."); print v[1]; exit }')"
+if [ "$XCODE_MAJOR" -lt 27 ]; then
+    # Xcode 26's Swift Build passes these options to clang rather than ld.
+    set -- "$@" -Xlinker "-Wl,-platform_version,macos,$MIN_MACOS,$MACOS_SDK"
+else
+    set -- "$@" -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$MACOS_SDK"
+fi
 (cd app && swift build -c release --product DaybreakApp "$@" && swift build -c release --product daybreak "$@")
 BIN_DIR="$(cd app && swift build -c release "$@" --show-bin-path)"
 
