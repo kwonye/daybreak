@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import Darwin
 import Foundation
+import Security
 
 struct ApplicationIdentity: Hashable {
     let bundleID: String
@@ -88,13 +89,18 @@ struct BundleMetadata: Sendable {
         var executable = ""
         var source = "unresolved"
         if let name = declared as? String, !name.isEmpty, name != ".", name != "..", !name.contains("/") {
-            executable = safeExecutable(root.appendingPathComponent("Contents/MacOS/\(name)").path, root: root, observed: false) ?? ""
+            executable = safeExecutable(root.appendingPathComponent("Contents/MacOS/\(name)").path, root: root, requireMacOSDirectory: false) ?? ""
             if !executable.isEmpty { source = "plist" }
         } else if declared == nil || (declared as? String) == "" {
-            let candidates = Set(observed.compactMap { safeExecutable($0, root: root, observed: true) })
-            if candidates.count == 1, let candidate = candidates.first {
-                executable = candidate
-                source = "running-process"
+            if let signedExecutable = signedMainExecutable(root) {
+                executable = signedExecutable
+                source = "code-signature"
+            } else {
+                let candidates = Set(observed.compactMap { safeExecutable($0, root: root, requireMacOSDirectory: true) })
+                if candidates.count == 1, let candidate = candidates.first {
+                    executable = candidate
+                    source = "running-process"
+                }
             }
         }
         var fingerprint = ""
@@ -116,12 +122,25 @@ struct BundleMetadata: Sendable {
                               executable: executable, fingerprint: fingerprint, hints: hints, executableSource: source)
     }
 
-    private static func safeExecutable(_ path: String, root: URL, observed: Bool) -> String? {
+    /// Uses macOS's bundle resolution when the vendor omitted CFBundleExecutable.
+    /// The installer still independently verifies the entire bundle before replacing it.
+    private static func signedMainExecutable(_ root: URL) -> String? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(root as CFURL, [], &code) == errSecSuccess, let code else { return nil }
+        var signingInfo: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &signingInfo) == errSecSuccess,
+              let fields = signingInfo as? [String: Any],
+              fields[kSecCodeInfoIdentifier as String] is String,
+              let executable = fields[kSecCodeInfoMainExecutable as String] as? URL, executable.isFileURL else { return nil }
+        return safeExecutable(executable.path, root: root, requireMacOSDirectory: true)
+    }
+
+    private static func safeExecutable(_ path: String, root: URL, requireMacOSDirectory: Bool) -> String? {
         guard path.hasPrefix("/") else { return nil }
         guard let contents = canonicalPath(root.path), let candidate = canonicalPath(path),
               candidate.hasPrefix(contents + "/Contents/"),
               isFile(candidate), FileManager.default.isExecutableFile(atPath: candidate) else { return nil }
-        if observed {
+        if requireMacOSDirectory {
             let parent = URL(fileURLWithPath: candidate).deletingLastPathComponent().path
             guard parent == canonicalPath(root.appendingPathComponent("Contents/MacOS").path) else { return nil }
         }

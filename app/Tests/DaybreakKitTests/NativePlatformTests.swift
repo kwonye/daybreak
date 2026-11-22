@@ -4,6 +4,28 @@ import Testing
 @testable import DaybreakKit
 
 @Suite struct NativePlatformTests {
+    @Test func signedClosedAppCanResolveMainExecutableWithoutPlistKey() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = directory.appendingPathComponent("Fixture.app")
+        let macOS = root.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        let main = macOS.appendingPathComponent("Fixture")
+        let helper = macOS.appendingPathComponent("Helper")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: main)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/false"), to: helper)
+        let properties = ["CFBundleIdentifier": "co.kwon.daybreak.signedfixture",
+                          "CFBundlePackageType": "APPL", "CFBundleVersion": "10"]
+        try PropertyListSerialization.data(fromPropertyList: properties, format: .xml, options: 0)
+            .write(to: root.appendingPathComponent("Contents/Info.plist"))
+        _ = try UpdaterProcess().checked(["/usr/bin/codesign", "--force", "--sign", "-", root.path], 20)
+
+        let metadata = try BundleMetadata.read(root.path, observed: [])
+        #expect(metadata.executable == canonicalPath(main.path))
+        #expect(metadata.executableSource == "code-signature")
+        #expect(metadata.fingerprint.count == 64)
+    }
+
     @Test func observedExecutableMustBeUniqueAndWithinBundle() throws {
         let root = temporaryURL()
         defer { try? FileManager.default.removeItem(at: root) }
