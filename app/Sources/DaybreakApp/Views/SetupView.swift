@@ -26,7 +26,7 @@ struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var step = Step.updates
     @State private var draft: EngineSettings
-    private let original: EngineSettings
+    @State private var original: EngineSettings
     @State private var showMenuBar: Bool
     @State private var hideDockIcon: Bool
     @State private var hideProtected: Bool
@@ -36,7 +36,7 @@ struct SetupView: View {
         self.model = model
         let settings = model.config.settings
         _draft = State(initialValue: settings)
-        original = settings
+        _original = State(initialValue: settings)
         _showMenuBar = State(initialValue: model.showMenuBar)
         _hideDockIcon = State(initialValue: model.hideDockIcon)
         _hideProtected = State(initialValue: model.inventory.hideProtected)
