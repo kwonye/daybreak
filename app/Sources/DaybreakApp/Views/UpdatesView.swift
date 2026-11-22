@@ -93,7 +93,7 @@ struct UpdatesView: View {
                 .disabled(!model.canCheck)
                 .accessibilityIdentifier("updates.check")
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 16)
         .padding(.vertical, 19)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -160,35 +160,68 @@ private struct UpdateListRow: View {
                 }
             }
             Spacer()
-            if isInstalling {
-                Text("Updating…").font(.callout).foregroundStyle(.secondary)
-                ProgressView().controlSize(.small)
-            } else {
-                Label(statusTitle, systemImage: statusSymbol)
-                    .font(.callout)
-                    .foregroundStyle(statusColor)
-                    .fixedSize(horizontal: true, vertical: false)
-                if let action = item.action {
-                    Button(action.title, action: activate)
-                        .buttonStyle(.bordered)
-                        .disabled(action == .install && !canInstall)
-                        .accessibilityLabel("\(action.title) for \(item.name)")
-                }
-            }
-            if item.bundleID != nil, item.status == .checkInApp || item.status == .failed || item.repository != nil {
-                Menu {
-                    Button(item.repository == nil ? "Track Release Page…" : "Edit Release Page…", action: editRepository)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .disabled(!canInstall)
-                .accessibilityLabel("More actions for \(item.name)")
-            }
+            status
+                .frame(width: 128, alignment: .leading)
+            primaryAction
+                .frame(width: 116)
+            overflow
+                .frame(width: 22)
         }
         .padding(.vertical, 6)
+        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+        .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+    }
+
+    private var status: some View {
+        HStack(spacing: 6) {
+            Group {
+                if isInstalling {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: statusSymbol)
+                }
+            }
+            .frame(width: 16)
+            .accessibilityHidden(true)
+            Text(isInstalling ? "Updating…" : statusTitle)
+                .lineLimit(1)
+        }
+        .font(.callout)
+        .foregroundStyle(isInstalling ? .secondary : statusColor)
+    }
+
+    @ViewBuilder
+    private var primaryAction: some View {
+        if let action = item.action, !isInstalling {
+            Button(action: activate) {
+                Text(action.title)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(action == .install && !canInstall)
+            .accessibilityLabel("\(action.title) for \(item.name)")
+        } else {
+            Color.clear.frame(height: 0).accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var overflow: some View {
+        if item.bundleID != nil, item.status == .checkInApp || item.status == .failed || item.repository != nil {
+            Menu {
+                Button(item.repository == nil ? "Track Release Page…" : "Edit Release Page…", action: editRepository)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(!canInstall)
+            .accessibilityLabel("More actions for \(item.name)")
+        } else {
+            Color.clear.frame(height: 0).accessibilityHidden(true)
+        }
     }
 
     private var versions: String {
