@@ -10,13 +10,13 @@ Automatic runs stay off until enabled. When enabled, Daybreak checks the schedul
 
 ## Check for updates in the app
 
-Open **Updates** in Daybreak, or choose **Check for Updates** from the menu bar. Daybreak finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
+Open **Updates** in Daybreak to check automatically if the last check was at least an hour ago. Use **Check for Updates** in the pane or the menu bar for an immediate check. Daybreak finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
 
 - Daybreak can install compatible Sparkle and Homebrew updates, request a scoped update from Chrome, and install updates offered for apps registered with Microsoft AutoUpdate. The packaged app includes the official Sparkle helper. Docker's native update action is available when its workload interruption setting is enabled.
 - Daybreak lists available macOS updates and opens System Settings to install them. In **Mac App Store**, Daybreak checks Apple's public listing without an extra tool. Enable **Settings → Updates → Install Mac App Store updates in Daybreak** to install eligible updates for App Store apps in `/Applications` from Daybreak. The App Store controls account eligibility, and macOS may ask for administrator approval. If the current OS or app layout does not support direct installation, use **Open Updater**.
 - For apps that manage their own update flow, **Open App** takes you to the installed copy. To track a public GitHub release for an app with a manual update flow, use its **Track Release Page** menu and enter the developer's release URL. Daybreak compares conventional stable version tags and opens the release page for review.
 
-Interactive installations respect the whitelist and appear in History. The existing **Run** pane and CLI remain available for the running-app workflow and keep the same backend configuration contract.
+Interactive installations respect the whitelist and appear in History. Scheduled runs and the CLI remain available for the running-app workflow.
 
 **The run command previews changes by default. This is a conservative v0.1, not a universal updater.** There is no supported universal external API for every Sparkle or Electron application. Unsupported apps can be restarted to activate updates they already downloaded, but are explicitly reported as `restart_only_unverified`.
 
@@ -129,9 +129,9 @@ Use the packaged `Daybreak.app` to verify Liquid Glass. The bundle build explici
 
 - **Running Apps** lists `inventory` with protected/whitelisted badges and a per-app whitelist checkbox (protected apps can be hidden). Daybreak never includes itself in an update run.
 - **Whitelist** edits `whitelist` in `~/.config/daybreak/config.json`: exact bundle IDs or case-sensitive globs such as `com.jetbrains.*`, added from running apps, from an app in `/Applications`, or by hand (⌘N). Legacy `exclude` entries are shown and can be removed. Delete removes the selection; ⌘Z undoes. Whitelisted apps are never quit, updated or relaunched.
-- **Run** offers **Preview** (⇧⌘P) and **Update Now…** (⇧⌘U), which previews first, then asks for confirmation listing the apps that will be gracefully quit and relaunched; the confirmation lets you choose individual running instances. **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane; ⌘1–⌘5 switch panes.
+- **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane.
 - **Settings › Updates** edits `hour`, `timezone` (searchable picker), `quit_timeout_seconds`, `restart_current` and `restart_unmanaged`. Every other key in the config file (`apps`, `sparkle_cli`, …) is preserved, and a file that does not parse is never overwritten.
-- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Check for Updates, Preview, Update Now, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
+- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Check for Updates, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
 
 The app’s optional schedule runs inside Daybreak and creates no LaunchAgents.
 
@@ -143,7 +143,7 @@ The app’s optional schedule runs inside Daybreak and creates no LaunchAgents.
 | `NOTARY_PROFILE` | `notarytool` keychain profile (`xcrun notarytool store-credentials`). With a Developer ID identity: notarize, staple, re-zip and check with `spctl` |
 | `ARCHS` | Architectures to build (default `arm64 x86_64`) |
 
-The icon is generated by `swift scripts/make-icon.swift app/Resources/AppIcon.icns`; the `.icns` is committed, so builds do not regenerate it. For QA, the app accepts `--pane updates|running|whitelist|run|history`, `--appearance light|dark`, `--preview` (preview on launch), `--settings [general|behavior]` and `--snapshot DIR` (renders its own windows to PNGs, then quits). None of these can apply updates.
+The icon is generated by `swift scripts/make-icon.swift app/Resources/AppIcon.icns`; the `.icns` is committed, so builds do not regenerate it. For QA, the app accepts `--pane updates|running|whitelist|history`, `--appearance light|dark`, `--settings [general|behavior]` and `--snapshot DIR` (renders its own windows to PNGs, then quits). None of these can apply updates.
 
 ## Configuration and extending
 

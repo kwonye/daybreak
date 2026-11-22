@@ -25,7 +25,7 @@ struct ResultsTable: View {
                                 Image(systemName: "sunrise.fill")
                                     .font(.caption)
                                     .foregroundStyle(.blue)
-                                    .help("This app. Daybreak never quits itself; it is left out of Update Now.")
+                                    .help("Daybreak leaves itself running during updates.")
                                     .accessibilityLabel("This app")
                             }
                         }

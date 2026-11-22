@@ -258,7 +258,7 @@ private struct GeneralSettingsView: View {
             }
             Section {
                 HStack {
-                    if model.runner.isBusy {
+                    if model.scheduler.isBusy {
                         Text("Available when the current run finishes.").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -266,7 +266,7 @@ private struct GeneralSettingsView: View {
                         model.stateDirectoryPath = draftStateFolder
                         Task { await model.bootstrap() }
                     }
-                        .disabled(model.engineState == .loading || model.runner.isBusy || model.runner.pendingPlan != nil
+                        .disabled(model.engineState == .loading || model.scheduler.isBusy || model.updates.isBusy
                                   || draftStateFolder == model.stateDirectoryPath)
                 }
             }

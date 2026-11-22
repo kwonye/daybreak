@@ -4,7 +4,7 @@ import Foundation
 
 /// QA aid for `--snapshot DIR`: renders the app's *own* windows into PNGs (via
 /// `cacheDisplay`, no screen recording) for each pane, then the Settings window, then quits.
-/// It only reads: combine with `--preview` to populate the Run pane with a preview.
+/// It reads local data without running an update check.
 @MainActor
 enum Snapshotter {
     static func run(model: AppModel, directory: String) async {
@@ -12,12 +12,10 @@ enum Snapshotter {
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let suffix = model.launchOptions.appearance.map { "-\($0)" } ?? ""
 
-        // Wait (up to ~60 s) for discovery, inventory, history and any requested preview.
+        // Wait (up to ~60 s) for discovery, inventory, history and history.
         for _ in 0..<120 {
             let settled = model.engineState != .loading && !model.inventory.state.isLoading
-                && !model.history.state.isLoading && !model.runner.isBusy
-                && (!model.launchOptions.autoPreview || model.runner.outcome != nil || model.runner.error != nil
-                    || !model.isEngineReady)
+                && !model.history.state.isLoading && !model.scheduler.isBusy
             if settled { break }
             try? await Task.sleep(for: .milliseconds(500))
         }

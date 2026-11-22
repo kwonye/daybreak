@@ -137,7 +137,7 @@ struct SetupView: View {
         model.inventory.hideProtected = hideProtected
         model.completeSetup()
         dismiss()
-        Task { await model.runner.runScheduledIfDue() }
+        Task { await model.scheduler.runScheduledIfDue() }
     }
 }
 

@@ -108,7 +108,7 @@ struct NativeState: Sendable {
                                                 attributes: [.posixPermissions: 0o700])
     }
 
-    private func write(_ data: Data, to url: URL) throws {
+    func write(_ data: Data, to url: URL) throws {
         try createDirectory(url.deletingLastPathComponent())
         // A private temporary file on the same volume keeps permissions and atomic replacement.
         var template = Array(url.deletingLastPathComponent().appendingPathComponent(".daybreak-XXXXXX").path.utf8CString)

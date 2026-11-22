@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public struct UpdateItem: Identifiable, Sendable, Equatable {
-    public enum Status: Sendable, Equatable {
+    public enum Status: String, Codable, Sendable, Equatable {
         case readyToCheck, available, current, newerRelease, checkInApp, openUpdater, excluded, inconclusive, failed
     }
 

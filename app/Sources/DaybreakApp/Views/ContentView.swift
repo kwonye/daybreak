@@ -62,8 +62,6 @@ struct ContentView: View {
             case .whitelist:
                 WhitelistView(config: model.config, inventory: model.inventory,
                               revealConfig: model.revealConfigInFinder, addRequest: model.whitelistAddRequest)
-            case .run:
-                RunView(runner: model.runner)
             case .history:
                 HistoryView(history: model.history, stateDirectory: model.stateDirectory,
                             reveal: model.revealStateDirectoryInFinder)
@@ -96,7 +94,10 @@ private struct EngineStatusFooter: View {
 
     private var color: Color {
         switch model.engineState {
-        case .ready: model.runner.isBusy || model.updates.isBusy ? .blue : .green
+        case .ready:
+            if model.scheduler.isBusy || model.updates.isBusy { .blue }
+            else if model.scheduler.error != nil { .orange }
+            else { .green }
         case .loading: .yellow
         }
     }
@@ -106,16 +107,13 @@ private struct EngineStatusFooter: View {
         case .ready:
             if model.updates.installingID != nil { return "Installing update…" }
             if model.updates.isChecking { return "Checking for updates…" }
-            switch model.runner.phase {
-            case .applying: return "Updating apps…"
-            case .previewing, .preparingApply: return "Previewing…"
-            case .idle: return "Engine ready"
-            }
+            if !model.scheduler.isBusy, model.scheduler.error != nil { return "Scheduled run needs attention" }
+            return model.scheduler.isBusy ? "Updating apps…" : "Engine ready"
         case .loading: return "Starting engine…"
         }
     }
 
     private var help: String {
-        "State: \(model.stateDirectory.path)"
+        model.scheduler.error ?? "State: \(model.stateDirectory.path)"
     }
 }

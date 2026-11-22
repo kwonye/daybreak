@@ -7,6 +7,8 @@ import Observation
 final class UpdatesModel {
     @ObservationIgnored private unowned let app: AppModel
     @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private weak var cacheClient: EngineClient?
+    @ObservationIgnored private var recentCheck: UpdateCheckCache?
     private(set) var items: [UpdateItem] = []
     private(set) var state: LoadState = .idle
     private(set) var isChecking = false
@@ -18,12 +20,14 @@ final class UpdatesModel {
     init(app: AppModel) { self.app = app }
 
     var isBusy: Bool { isChecking || state.isLoading || installingID != nil }
-    var canCheck: Bool { !isBusy && app.runner.canStart }
+    var canCheck: Bool { !isBusy && app.isEngineReady && !app.scheduler.isBusy }
     var hasUpdates: Int { items.filter { $0.status == .available }.count }
 
     func load() async {
-        guard state == .idle else { return }
-        await reloadInventory()
+        let needsInventory = state == .idle || cacheClient !== app.client
+        if needsInventory { await reloadInventory() }
+        guard state == .loaded, app.launchOptions.snapshotDirectory == nil else { return }
+        await check(automatic: true, reuseInventory: needsInventory)
     }
 
     private func reloadInventory() async {
@@ -35,7 +39,16 @@ final class UpdatesModel {
         state = .loading
         let task = Task {
             do {
-                items = try await client.updateInventory()
+                let inventory = try await client.updateInventory()
+                if cacheClient !== client {
+                    let cached = await client.cachedUpdateCheck()
+                    recentCheck = cached?.check
+                    checkedAt = cached?.matchesConfig == true ? cached?.check.checkedAt : nil
+                    items = cached?.matchesConfig == true ? cached?.check.restore(into: inventory) ?? inventory : inventory
+                    cacheClient = client
+                } else {
+                    items = inventory
+                }
                 state = .loaded
             } catch {
                 state = .failed("Daybreak couldn’t read your installed apps or configuration.")
@@ -47,19 +60,40 @@ final class UpdatesModel {
     }
 
     func check() async {
-        guard !isChecking, installingID == nil, !app.runner.isBusy, app.runner.pendingPlan == nil,
-              let client = app.client else { return }
+        await check(automatic: false, reuseInventory: false)
+    }
+
+    private func check(automatic: Bool, reuseInventory: Bool) async {
+        guard !isChecking, installingID == nil, !app.scheduler.isBusy, let client = app.client else { return }
+        if automatic, recentCheck?.allowsAutomaticCheck(at: Date()) == false { return }
         isChecking = true
         offerAppStoreOnError = false
+        error = nil
+        // A check belongs to the app, so leaving the pane doesn't cancel it.
+        let operation = Task { await performCheck(client, reuseInventory: reuseInventory) }
+        await operation.value
+    }
+
+    private func performCheck(_ client: EngineClient, reuseInventory: Bool) async {
         defer { isChecking = false }
-        checkedAt = nil
-        await reloadInventory()
+        let previousItems = items
+        let previousDate = checkedAt
+        if !reuseInventory { await reloadInventory() }
         guard state == .loaded else { return }
+        let started = Date()
+        let fingerprint = await client.updateConfigFingerprint()
+        let attempted = UpdateCheckCache(attemptedAt: started, checkedAt: previousDate, items: previousItems)
+        recentCheck = attempted
+        try? await client.saveUpdateCheck(attempted, configFingerprint: fingerprint)
+        checkedAt = nil
         do {
             try await client.checkForUpdates(items) { [weak self] result in
                 await self?.replace(result)
             }
             checkedAt = Date()
+            let completed = UpdateCheckCache(attemptedAt: started, checkedAt: checkedAt, items: items)
+            recentCheck = completed
+            try? await client.saveUpdateCheck(completed, configFingerprint: fingerprint)
         } catch is CancellationError {
             return
         } catch {

@@ -48,6 +48,9 @@ struct UpdatesView: View {
         .navigationTitle("Updates")
         .searchable(text: $search, placement: .toolbar, prompt: "Find software")
         .task { await model.load() }
+        .onChange(of: model.canCheck) {
+            if model.canCheck { Task { await model.load() } }
+        }
         .sheet(item: $editingRepository) { item in
             ReleaseRepositorySheet(item: item, model: model)
         }

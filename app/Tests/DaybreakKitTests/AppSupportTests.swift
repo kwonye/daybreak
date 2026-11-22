@@ -58,11 +58,10 @@ import Testing
 
 @Suite struct LaunchOptionsTests {
     @Test func parsesKnownArguments() {
-        let options = LaunchOptions(arguments: ["/path/Daybreak", "--pane", "whitelist", "--appearance", "dark", "--preview",
+        let options = LaunchOptions(arguments: ["/path/Daybreak", "--pane", "whitelist", "--appearance", "dark",
                                                 "-NSDocumentRevisionsDebugMode", "YES", "--settings", "engine"])
         #expect(options.pane == "whitelist")
         #expect(options.appearance == "dark")
-        #expect(options.autoPreview)
         #expect(options.openSettings)
         #expect(options.settingsTab == "engine")
     }

@@ -1,9 +1,8 @@
 import Foundation
 
 /// Launch arguments used for screenshots/QA. None of them can apply updates:
-///   --pane updates|running|whitelist|run|history   initial sidebar item
+///   --pane updates|running|whitelist|history   initial sidebar item
 ///   --appearance light|dark                force an appearance
-///   --preview                              run a read-only preview after launch
 ///   --settings [general|behavior]           open the Settings window on a tab
 ///   --config PATH                         use a separate configuration file
 ///   --snapshot DIR                         render each pane of the app's own windows to PNGs
@@ -11,7 +10,6 @@ import Foundation
 public struct LaunchOptions: Sendable, Equatable {
     public var pane: String?
     public var appearance: String?
-    public var autoPreview = false
     public var openSettings = false
     public var settingsTab: String?
     public var snapshotDirectory: String?
@@ -33,8 +31,6 @@ public struct LaunchOptions: Sendable, Equatable {
             case "--appearance":
                 appearance = value(after: index)
                 if appearance != nil { index += 1 }
-            case "--preview":
-                autoPreview = true
             case "--settings":
                 openSettings = true
                 settingsTab = value(after: index)

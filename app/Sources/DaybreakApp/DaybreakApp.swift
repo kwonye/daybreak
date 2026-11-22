@@ -67,23 +67,6 @@ struct DaybreakCommands: Commands {
 
             Divider()
 
-            Button("Preview") {
-                model.selection = .run
-                Task { await model.runner.preview() }
-            }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
-            .disabled(!model.runner.canStart)
-
-            // Opens the confirmation sheet; never applies directly.
-            Button("Update Now…") {
-                model.selection = .run
-                Task { await model.runner.prepareApply() }
-            }
-            .keyboardShortcut("u", modifiers: [.command, .shift])
-            .disabled(!model.runner.canStart)
-
-            Divider()
-
             Button("Add Whitelist Pattern…") { model.whitelistAddRequest += 1 }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(model.selection != .whitelist || !model.config.canEdit)

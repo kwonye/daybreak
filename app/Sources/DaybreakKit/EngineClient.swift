@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public enum EngineError: Error, LocalizedError, Equatable {
     case failed(detail: String)
@@ -83,6 +84,30 @@ public actor EngineClient {
 
     public func updateInventory() throws -> [UpdateItem] {
         try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).inventory()
+    }
+
+    private struct CachedCheck: Codable {
+        let configPath: String
+        let configFingerprint: String
+        let check: UpdateCheckCache
+    }
+
+    private var updateCheckURL: URL { stateDirectory.appendingPathComponent("update-check.json") }
+
+    public func updateConfigFingerprint() -> String {
+        guard let data = try? Data(contentsOf: configURL) else { return "" }
+        return SHA256.hash(data: data).description
+    }
+
+    public func cachedUpdateCheck() -> (check: UpdateCheckCache, matchesConfig: Bool)? {
+        guard let data = try? Data(contentsOf: updateCheckURL),
+              let cached = try? JSONDecoder().decode(CachedCheck.self, from: data) else { return nil }
+        return (cached.check, cached.configPath == configURL.path && cached.configFingerprint == updateConfigFingerprint())
+    }
+
+    public func saveUpdateCheck(_ check: UpdateCheckCache, configFingerprint: String) throws {
+        let cached = CachedCheck(configPath: configURL.path, configFingerprint: configFingerprint, check: check)
+        try NativeState(directory: stateDirectory).write(JSONEncoder().encode(cached), to: updateCheckURL)
     }
 
     public func checkForUpdates(_ items: [UpdateItem], progress: @escaping @Sendable (UpdateItem) async -> Void) async throws {

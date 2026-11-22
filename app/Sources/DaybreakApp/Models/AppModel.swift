@@ -4,17 +4,16 @@ import Foundation
 import Observation
 
 enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
-    case updates, runningApps, whitelist, run, history
+    case updates, runningApps, whitelist, history
 
     var id: Self { self }
 
-    /// Accepts `--pane updates|running|whitelist|run|history` (or the raw value).
+    /// Accepts `--pane updates|running|whitelist|history` (or the raw value).
     init?(launchName: String) {
         switch launchName.lowercased() {
         case "updates": self = .updates
         case "running", "apps", "runningapps": self = .runningApps
         case "whitelist": self = .whitelist
-        case "run": self = .run
         case "history": self = .history
         default: return nil
         }
@@ -25,7 +24,6 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
         case .updates: "Updates"
         case .runningApps: "Running Apps"
         case .whitelist: "Whitelist"
-        case .run: "Run"
         case .history: "History"
         }
     }
@@ -35,7 +33,6 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
         case .updates: "arrow.down.app"
         case .runningApps: "macwindow.on.rectangle"
         case .whitelist: "checklist"
-        case .run: "arrow.triangle.2.circlepath"
         case .history: "clock.arrow.circlepath"
         }
     }
@@ -45,7 +42,6 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
         case .updates: "5"
         case .runningApps: "1"
         case .whitelist: "2"
-        case .run: "3"
         case .history: "4"
         }
     }
@@ -116,7 +112,7 @@ final class AppModel {
     var shouldOfferSetup: Bool {
         !UserDefaults.standard.bool(forKey: DefaultsKey.setupCompleted)
             && launchOptions.pane == nil && launchOptions.configPath == nil
-            && launchOptions.snapshotDirectory == nil && !launchOptions.openSettings && !launchOptions.autoPreview
+            && launchOptions.snapshotDirectory == nil && !launchOptions.openSettings
     }
 
     func completeSetup() {
@@ -130,7 +126,7 @@ final class AppModel {
         if launchOptions.snapshotDirectory == nil {
             scheduleTask = Task { [weak self] in
                 while !Task.isCancelled, self != nil {
-                    await self?.runner.runScheduledIfDue()
+                    await self?.scheduler.runScheduledIfDue()
                     try? await Task.sleep(for: .seconds(30))
                 }
             }
@@ -156,7 +152,7 @@ final class AppModel {
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
     @ObservationIgnored private(set) lazy var updates = UpdatesModel(app: self)
     @ObservationIgnored private(set) lazy var inventory = InventoryModel(app: self)
-    @ObservationIgnored private(set) lazy var runner = RunModel(app: self)
+    @ObservationIgnored private(set) lazy var scheduler = ScheduledRunsModel(app: self)
     @ObservationIgnored private(set) lazy var history = HistoryModel(app: self)
 
     init(launchOptions: LaunchOptions = LaunchOptions(arguments: CommandLine.arguments)) {
@@ -176,7 +172,7 @@ final class AppModel {
     /// Loads local configuration, inventory and history through the native engine.
     /// Never runs while a run is in flight (it would swap the client underneath it).
     func bootstrap() async {
-        guard !runner.isBusy, runner.pendingPlan == nil, !updates.isBusy else { return }
+        guard !scheduler.isBusy, !updates.isBusy else { return }
         engineState = .loading
         client = nil
         config.reload()
@@ -186,7 +182,6 @@ final class AppModel {
         async let inventoryLoad: Void = inventory.refresh()
         async let historyLoad: Void = history.refresh()
         _ = await (inventoryLoad, historyLoad)
-        if launchOptions.autoPreview { await runner.preview() }
     }
 
     /// ⌘R: refreshes whatever the selected pane shows.
@@ -198,7 +193,6 @@ final class AppModel {
             config.reload()
             await inventory.refresh()
         case .runningApps: await inventory.refresh()
-        case .run: await runner.preview()
         }
     }
 
@@ -222,5 +216,5 @@ final class AppModel {
     }
 
     /// True while an `--apply` run is in flight; quitting the app is refused meanwhile.
-    var isApplying: Bool { runner.phase == .applying || updates.installingID != nil }
+    var isApplying: Bool { scheduler.isBusy || updates.installingID != nil }
 }

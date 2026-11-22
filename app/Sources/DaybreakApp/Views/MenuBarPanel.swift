@@ -29,17 +29,6 @@ struct MenuBarPanel: View {
                     }
                 }
                 .accessibilityIdentifier("menuBar.checkForUpdates")
-                action("Preview", icon: "eye") {
-                    showWindow(.run)
-                    Task { await model.runner.preview() }
-                }
-                .accessibilityIdentifier("menuBar.preview")
-                .disabled(!model.runner.canStart)
-                action("Update Now…", icon: "arrow.triangle.2.circlepath") {
-                    showWindow(.run)
-                    Task { await model.runner.prepareApply() }
-                }
-                .disabled(!model.runner.canStart)
                 action("History", icon: "clock.arrow.circlepath") { showWindow(.history) }
             }
             Divider()
@@ -62,7 +51,7 @@ struct MenuBarPanel: View {
     private var status: String {
         if model.updates.installingID != nil { return "Installing update…" }
         if model.updates.isChecking { return "Checking for updates…" }
-        if model.runner.isBusy { return model.runner.phase.message }
+        if model.scheduler.isBusy { return "Running scheduled updates…" }
         if let latest = model.history.latest, let date = latest.startedDate {
             return "Last run \(date.formatted(date: .abbreviated, time: .shortened))"
         }

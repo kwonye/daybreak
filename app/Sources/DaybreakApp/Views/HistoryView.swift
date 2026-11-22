@@ -145,7 +145,7 @@ private struct ReportDetail: View {
     var body: some View {
         if report.isNeverRun {
             ContentUnavailableView("No Runs Yet", systemImage: "clock",
-                                   description: Text("Reports appear here after the first real update run. Preview results stay in the Run pane."))
+                                   description: Text("Reports appear here after the first update or scheduled run."))
         } else if let status = report.status, report.results.isEmpty {
             ContentUnavailableView("No Results", systemImage: "tray",
                                    description: Text("The engine reported status “\(status)”."))
