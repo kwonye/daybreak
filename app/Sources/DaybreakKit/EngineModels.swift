@@ -112,6 +112,8 @@ public struct ResultStatus: RawRepresentable, Hashable, Sendable, Decodable {
     }
 
     public static let updatedAndRelaunched = ResultStatus(rawValue: "updated_and_relaunched")
+    public static let updated = ResultStatus(rawValue: "updated")
+    public static let unchanged = ResultStatus(rawValue: "unchanged")
     public static let checkedAndRelaunched = ResultStatus(rawValue: "checked_and_relaunched")
     public static let restartOnlyUnverified = ResultStatus(rawValue: "restart_only_unverified")
     public static let current = ResultStatus(rawValue: "current")
@@ -125,7 +127,7 @@ public struct ResultStatus: RawRepresentable, Hashable, Sendable, Decodable {
     public static let planned = ResultStatus(rawValue: "planned")
 
     public static let known: [ResultStatus] = [
-        .updatedAndRelaunched, .checkedAndRelaunched, .restartOnlyUnverified, .current, .deferred,
+        .updated, .updatedAndRelaunched, .unchanged, .checkedAndRelaunched, .restartOnlyUnverified, .current, .deferred,
         .blocked, .failed, .uncertain, .unsupported, .skipped, .excluded, .planned,
     ]
 
@@ -133,7 +135,8 @@ public struct ResultStatus: RawRepresentable, Hashable, Sendable, Decodable {
 
     public var title: String {
         switch self {
-        case .updatedAndRelaunched: "Updated"
+        case .updated, .updatedAndRelaunched: "Updated"
+        case .unchanged: "Version Unchanged"
         case .checkedAndRelaunched: "Checked & Relaunched"
         case .restartOnlyUnverified: "Restarted (Unverified)"
         case .current: "Current"
@@ -151,7 +154,7 @@ public struct ResultStatus: RawRepresentable, Hashable, Sendable, Decodable {
 
     public var tone: StatusTone {
         switch self {
-        case .updatedAndRelaunched, .checkedAndRelaunched, .current: .success
+        case .updated, .updatedAndRelaunched, .checkedAndRelaunched, .current: .success
         case .planned: .info
         case .restartOnlyUnverified, .deferred, .uncertain, .unsupported: .warning
         case .blocked, .failed: .danger
@@ -161,7 +164,8 @@ public struct ResultStatus: RawRepresentable, Hashable, Sendable, Decodable {
 
     public var symbolName: String {
         switch self {
-        case .updatedAndRelaunched: "arrow.up.circle.fill"
+        case .updated, .updatedAndRelaunched: "arrow.up.circle.fill"
+        case .unchanged: "equal.circle"
         case .checkedAndRelaunched: "checkmark.circle.fill"
         case .restartOnlyUnverified: "arrow.clockwise.circle"
         case .current: "checkmark.seal.fill"

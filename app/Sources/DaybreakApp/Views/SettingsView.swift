@@ -116,7 +116,7 @@ private struct BehaviorSettingsView: View {
                         .disabled(!isDirty || !problems.isEmpty || !config.canEdit)
                 }
             } footer: {
-                Text(verbatim: "Only the settings above are written; other keys such as apps and sparkle_cli are preserved.")
+                Text(verbatim: "Daybreak saves these settings to your configuration file.")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

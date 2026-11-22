@@ -60,14 +60,6 @@ struct ResultsTable: View {
             }
             .width(min: 60, ideal: 100, max: 180)
 
-            TableColumn("Backend", value: \.backend) { result in
-                Text(backendLabel(result))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(height: rowHeight, alignment: .leading)
-            }
-            .width(min: 80, ideal: 100, max: 130)
-
             TableColumn("Detail", value: \.detail) { result in
                 Text(result.detail)
                     .lineLimit(2)
@@ -103,13 +95,6 @@ struct ResultsTable: View {
                     .disabled(detailText(result).isEmpty)
             }
         }
-    }
-
-    private func backendLabel(_ result: RunResult) -> String {
-        if result.backend == "restart-only" {
-            return result.status == .unsupported ? "No updater" : "Restart only"
-        }
-        return result.backend.isEmpty ? "—" : result.backend
     }
 
     private func detailText(_ result: RunResult) -> String {

@@ -8,7 +8,7 @@ struct ApplicationIdentity: Hashable {
     let path: String
 }
 
-struct ManagedApp {
+struct ManagedApp: Sendable {
     let bundleID: String
     let name: String
     let path: String
@@ -52,7 +52,7 @@ struct ManagedApp {
     }
 }
 
-struct AppProcess: Decodable {
+struct AppProcess: Decodable, Sendable {
     let bundleID: String
     let name: String
     let path: String
@@ -65,7 +65,7 @@ struct AppProcess: Decodable {
     }
 }
 
-struct BundleMetadata {
+struct BundleMetadata: Sendable {
     let version: String
     let build: String
     let executable: String
@@ -81,7 +81,7 @@ struct BundleMetadata {
         return info
     }
 
-    static func read(_ path: String, observed: [String]) throws -> BundleMetadata {
+    static func read(_ path: String, observed: [String], fingerprintExecutable: Bool = true) throws -> BundleMetadata {
         let root = URL(fileURLWithPath: path)
         let info = try info(path)
         let declared = info["CFBundleExecutable"]
@@ -98,7 +98,7 @@ struct BundleMetadata {
             }
         }
         var fingerprint = ""
-        if !executable.isEmpty {
+        if fingerprintExecutable && !executable.isEmpty {
             let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: executable))
             defer { try? handle.close() }
             var hash = SHA256()
@@ -139,7 +139,7 @@ protocol ApplicationPlatform {
     func checkSignature(_ app: ManagedApp, expectedTeam: String) throws
 }
 
-struct MacApplications: ApplicationPlatform {
+struct MacApplications: ApplicationPlatform, Sendable {
     let process: UpdaterProcess
     let quitTimeout: TimeInterval
     var launchTimeout: TimeInterval = 60
@@ -174,6 +174,39 @@ struct MacApplications: ApplicationPlatform {
             return ManagedApp(bundleID: key.bundleID, name: first.name, path: key.path,
                               processes: rows, metadata: metadata, stale: stale)
         }
+    }
+
+    /// Inventory for interactive updates, including closed apps and without hashing every binary.
+    func installedApps() throws -> [ManagedApp] {
+        let records = try records()
+        let groups = Dictionary(grouping: records, by: \.path)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
+        var paths = Set(groups.keys)
+        for root in roots {
+            guard let children = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            for case let url as URL in children {
+                if url.pathExtension.lowercased() == "app" {
+                    children.skipDescendants()
+                    if let path = canonicalPath(url.path) { paths.insert(path) }
+                }
+            }
+        }
+        return paths.compactMap { path in
+            guard let info = try? BundleMetadata.info(path),
+                  let id = info["CFBundleIdentifier"] as? String, !id.isEmpty,
+                  info["CFBundlePackageType"] as? String == "APPL",
+                  InventoryApp.protectionReason(bundleID: id, path: path) == nil,
+                  let metadata = try? BundleMetadata.read(path, observed: [], fingerprintExecutable: false)
+            else { return nil }
+            let name = groups[path]?.first?.name
+                ?? (FileManager.default.displayName(atPath: path) as NSString).deletingPathExtension
+            return ManagedApp(bundleID: id, name: name, path: path, processes: groups[path] ?? [],
+                              metadata: metadata, stale: false)
+        }.sorted { ($0.name.localizedLowercase, $0.path) < ($1.name.localizedLowercase, $1.path) }
     }
 
     static func isStale(_ output: String, executable: String) -> Bool {

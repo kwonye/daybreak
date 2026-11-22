@@ -1,6 +1,6 @@
 import Foundation
 
-struct EngineConfiguration {
+struct EngineConfiguration: Sendable {
     let timeZone: TimeZone
     let timeZoneID: String
     let hour: Int

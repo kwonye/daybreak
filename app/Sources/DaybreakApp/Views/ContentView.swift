@@ -39,6 +39,7 @@ struct ContentView: View {
 
     private func badge(for section: SidebarSection) -> Int {
         switch section {
+        case .updates: model.updates.hasUpdates
         case .whitelist: model.config.entries.count
         default: 0
         }
@@ -50,7 +51,9 @@ struct ContentView: View {
         case .loading:
             LoadingView(message: "Starting Daybreak…")
         default:
-            switch model.selection ?? .runningApps {
+            switch model.selection ?? .updates {
+            case .updates:
+                UpdatesView(model: model.updates)
             case .runningApps:
                 RunningAppsView(inventory: model.inventory, config: model.config)
             case .whitelist:
@@ -90,7 +93,7 @@ private struct EngineStatusFooter: View {
 
     private var color: Color {
         switch model.engineState {
-        case .ready: model.runner.isBusy ? .blue : .green
+        case .ready: model.runner.isBusy || model.updates.isBusy ? .blue : .green
         case .loading: .yellow
         }
     }
@@ -98,6 +101,8 @@ private struct EngineStatusFooter: View {
     private var text: String {
         switch model.engineState {
         case .ready:
+            if model.updates.installingID != nil { return "Installing update…" }
+            if model.updates.isChecking { return "Checking for updates…" }
             switch model.runner.phase {
             case .applying: return "Updating apps…"
             case .previewing, .preparingApply: return "Previewing…"

@@ -47,6 +47,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_DIR/DaybreakApp" "$APP/Contents/MacOS/Daybreak"
 cp "$BIN_DIR/daybreak" "$APP/Contents/Helpers/daybreak"
 cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
+    "$APP/Contents/Helpers" "$APP/Contents/Resources"
 YEAR="$(date +%Y)"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

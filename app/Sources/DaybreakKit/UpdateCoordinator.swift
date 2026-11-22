@@ -57,7 +57,8 @@ struct UpdateCoordinator {
     let config: EngineConfiguration
     let backend: (ManagedApp) throws -> UpdateBackend
 
-    func handle(_ app: ManagedApp, apply: Bool, revalidateSelection: Bool = false) -> AppOutcome {
+    func handle(_ app: ManagedApp, apply: Bool, revalidateSelection: Bool = false,
+                confirmedUpdate: UpdateCheck? = nil) -> AppOutcome {
         if let reason = app.protectionReason {
             return AppOutcome(app: app, status: .excluded, detail: reason)
         }
@@ -94,7 +95,12 @@ struct UpdateCoordinator {
                 result.detail = "App stopped after inventory; not reopened"
                 return result
             }
-            let check = try backend.check(app)
+            let check = try confirmedUpdate ?? backend.check(app)
+            if confirmedUpdate != nil && check.state != .available {
+                result.status = check.state == .current ? .current : .deferred
+                result.detail = check.state == .current ? "Already up to date." : "Couldn’t confirm an update."
+                return result
+            }
             if check.state == .unknown && !config.restartUnmanaged {
                 result.status = .unsupported
                 result.detail = "Update availability is unknown. Daybreak leaves this app running."

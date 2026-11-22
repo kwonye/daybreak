@@ -21,6 +21,13 @@ struct MenuBarPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 action("Open Daybreak", icon: "macwindow") { showWindow() }
                     .accessibilityIdentifier("menuBar.open")
+                action("Check for Updates", icon: "arrow.down.app") {
+                    showWindow(.updates)
+                    Task {
+                        await model.startIfNeeded()
+                        await model.updates.check()
+                    }
+                }
                 action("Preview", icon: "eye") {
                     showWindow(.run)
                     Task { await model.runner.preview() }
@@ -52,6 +59,8 @@ struct MenuBarPanel: View {
     }
 
     private var status: String {
+        if model.updates.installingID != nil { return "Installing update…" }
+        if model.updates.isChecking { return "Checking for updates…" }
         if model.runner.isBusy { return model.runner.phase.message }
         if let latest = model.history.latest, let date = latest.startedDate {
             return "Last run \(date.formatted(date: .abbreviated, time: .shortened))"

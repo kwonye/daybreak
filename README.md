@@ -2,6 +2,16 @@
 
 A local macOS update coordinator for the apps that are running when the daily job starts. It checks supported updaters, applies updates, gracefully closes/reopens apps when needed, and verifies that fresh processes launched from the installed bundles.
 
+## Check for updates in the app
+
+Open **Updates** in Daybreak, or choose **Check for Updates** from the menu bar. Daybreak finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
+
+- Daybreak can install compatible Sparkle and Homebrew updates, request a scoped update from Chrome, and install updates offered for apps registered with Microsoft AutoUpdate. The packaged app includes the official Sparkle helper. Docker's native update action is available when its workload interruption setting is enabled.
+- macOS and Mac App Store updates open Apple's updater. Daybreak lists available macOS updates and can check App Store availability when optional `mas` can identify the installed app.
+- For apps that manage their own update flow, **Open App** takes you to the installed copy. To track a public GitHub release for an app with a manual update flow, use its **Track Release Page** menu and enter the developer's release URL. Daybreak compares conventional stable version tags and opens the release page for review.
+
+Interactive installations respect the whitelist and appear in History. The existing **Run** pane and CLI remain available for the running-app workflow and keep the same backend configuration contract.
+
 **The run command previews changes by default. This is a conservative v0.1, not a universal updater.** There is no supported universal external API for every Sparkle or Electron application. Unsupported apps can be restarted to activate updates they already downloaded, but are explicitly reported as `restart_only_unverified`.
 
 ## Quick start

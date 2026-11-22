@@ -14,18 +14,19 @@ struct UpdaterTimeout: LocalizedError {
     var errorDescription: String? { "\(command): timeout; completion is uncertain" }
 }
 
-struct UpdaterProcess {
+struct UpdaterProcess: Sendable {
     private static let inherited = ProcessInfo.processInfo.environment
     private static let defaultPath = "/usr/bin:/bin:/usr/sbin:/sbin"
     var searchPath = Self.inherited["PATH"] ?? Self.defaultPath
-    var run: ([String], TimeInterval) throws -> ProcessOutput = { try Self.execute($0, $1, environment: Self.inherited) }
+    var run: @Sendable ([String], TimeInterval) throws -> ProcessOutput = { try Self.execute($0, $1, environment: Self.inherited) }
 
     static func forGUI() -> UpdaterProcess {
         var environment = inherited
         let path = ([environment["PATH"] ?? defaultPath] + ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"])
             .joined(separator: ":")
         environment["PATH"] = path
-        return UpdaterProcess(searchPath: path) { try Self.execute($0, $1, environment: environment) }
+        let configuredEnvironment = environment
+        return UpdaterProcess(searchPath: path) { try Self.execute($0, $1, environment: configuredEnvironment) }
     }
 
     func checked(_ argv: [String], _ timeout: TimeInterval) throws -> String {

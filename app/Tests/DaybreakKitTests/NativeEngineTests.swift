@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import DaybreakKit
 
@@ -145,15 +146,15 @@ import Testing
         let app = sample()
         let platform = FakePlatform([app])
         platform.allowsQuit = false
-        var commands: [[String]] = []
+        let commands = OSAllocatedUnfairLock(initialState: [[String]]())
         let runner = UpdaterProcess { argv, _ in
-            commands.append(argv)
+            commands.withLock { $0.append(argv) }
             return processOutput()
         }
         let coordinator = try makeCoordinator(platform) { _ in UpdateBackend(kind: .sparkle, process: runner, executable: "/sparkle") }
         #expect(coordinator.handle(app, apply: true).status == .deferred)
         #expect(platform.events == ["current", "signer", "quit"])
-        #expect(commands.map { $0[2] } == ["--probe"])
+        #expect(commands.withLock { $0.map { $0[2] } } == ["--probe"])
     }
 
     @Test func sparkleNoUpdateStillVerifies() throws {

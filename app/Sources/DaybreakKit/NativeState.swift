@@ -8,7 +8,7 @@ struct EngineFailure: LocalizedError, Equatable {
     init(_ message: String) { self.message = message }
 }
 
-struct NativeState {
+struct NativeState: Sendable {
     let directory: URL
 
     func status() throws -> Data {

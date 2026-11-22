@@ -49,7 +49,7 @@ final class RunModel {
     }
 
     var isBusy: Bool { phase != .idle }
-    var canStart: Bool { app.isEngineReady && !isBusy && pendingPlan == nil }
+    var canStart: Bool { app.isEngineReady && !isBusy && pendingPlan == nil && !app.updates.isBusy }
 
     func preview() async {
         guard canStart, let client = app.client else { return }

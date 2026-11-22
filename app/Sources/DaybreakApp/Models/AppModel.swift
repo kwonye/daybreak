@@ -4,13 +4,14 @@ import Foundation
 import Observation
 
 enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
-    case runningApps, whitelist, run, history
+    case updates, runningApps, whitelist, run, history
 
     var id: Self { self }
 
-    /// Accepts `--pane running|whitelist|run|history` (or the raw value).
+    /// Accepts `--pane updates|running|whitelist|run|history` (or the raw value).
     init?(launchName: String) {
         switch launchName.lowercased() {
+        case "updates": self = .updates
         case "running", "apps", "runningapps": self = .runningApps
         case "whitelist": self = .whitelist
         case "run": self = .run
@@ -21,6 +22,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .updates: "Updates"
         case .runningApps: "Running Apps"
         case .whitelist: "Whitelist"
         case .run: "Run"
@@ -30,6 +32,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
+        case .updates: "arrow.down.app"
         case .runningApps: "macwindow.on.rectangle"
         case .whitelist: "checklist"
         case .run: "arrow.triangle.2.circlepath"
@@ -39,6 +42,7 @@ enum SidebarSection: String, CaseIterable, Identifiable, Hashable {
 
     var shortcut: Character {
         switch self {
+        case .updates: "5"
         case .runningApps: "1"
         case .whitelist: "2"
         case .run: "3"
@@ -130,6 +134,7 @@ final class AppModel {
     let configStore: ConfigStore
     let launchOptions: LaunchOptions
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
+    @ObservationIgnored private(set) lazy var updates = UpdatesModel(app: self)
     @ObservationIgnored private(set) lazy var inventory = InventoryModel(app: self)
     @ObservationIgnored private(set) lazy var runner = RunModel(app: self)
     @ObservationIgnored private(set) lazy var history = HistoryModel(app: self)
@@ -143,7 +148,7 @@ final class AppModel {
         showMenuBar = hideDock || (defaults.object(forKey: DefaultsKey.menuBar) as? Bool ?? true)
         stateDirectoryPath = defaults.string(forKey: DefaultsKey.stateDirectory) ?? ""
         let stored = defaults.string(forKey: DefaultsKey.selection).flatMap(SidebarSection.init(rawValue:))
-        selection = launchOptions.pane.flatMap(SidebarSection.init(launchName:)) ?? stored ?? .runningApps
+        selection = launchOptions.pane.flatMap(SidebarSection.init(launchName:)) ?? stored ?? .updates
     }
 
     var isEngineReady: Bool { engineState == .ready }
@@ -151,7 +156,7 @@ final class AppModel {
     /// Loads local configuration, inventory and history through the native engine.
     /// Never runs while a run is in flight (it would swap the client underneath it).
     func bootstrap() async {
-        guard !runner.isBusy, runner.pendingPlan == nil else { return }
+        guard !runner.isBusy, runner.pendingPlan == nil, !updates.isBusy else { return }
         engineState = .loading
         client = nil
         config.reload()
@@ -167,6 +172,7 @@ final class AppModel {
     /// ⌘R: refreshes whatever the selected pane shows.
     func refreshCurrentPane() async {
         switch selection ?? .runningApps {
+        case .updates: await updates.check()
         case .history: await history.refresh()
         case .whitelist:
             config.reload()
@@ -196,5 +202,5 @@ final class AppModel {
     }
 
     /// True while an `--apply` run is in flight; quitting the app is refused meanwhile.
-    var isApplying: Bool { runner.phase == .applying }
+    var isApplying: Bool { runner.phase == .applying || updates.installingID != nil }
 }

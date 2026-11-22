@@ -67,4 +67,16 @@ public actor EngineClient {
     public func status() throws -> RunReport {
         try decode(RunReport.self, from: invoke(.status).data, command: .status)
     }
+
+    public func updateInventory() throws -> [UpdateItem] {
+        try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).inventory()
+    }
+
+    public func checkForUpdates(_ items: [UpdateItem], progress: @escaping @Sendable (UpdateItem) async -> Void) async throws {
+        try await UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).check(items, progress: progress)
+    }
+
+    public func installUpdate(_ item: UpdateItem) throws -> UpdateItem {
+        try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).install(item)
+    }
 }

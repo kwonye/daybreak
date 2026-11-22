@@ -175,9 +175,9 @@ private struct ApplyConfirmationSheet: View {
                                 .truncationMode(.middle)
                         }
                         Spacer()
-                        Text(result.backend == "restart-only" ? "Restart only" : result.backend)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if result.backend == "restart-only" {
+                            Text("Restart only").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     .help(result.path)
                 }

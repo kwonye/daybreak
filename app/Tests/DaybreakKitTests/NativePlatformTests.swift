@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import DaybreakKit
 
@@ -32,9 +33,9 @@ import Testing
 
     @Test func installerCommandsStayScoped() throws {
         let app = sample()
-        var commands: [[String]] = []
+        let commands = OSAllocatedUnfairLock(initialState: [[String]]())
         let runner = UpdaterProcess { args, _ in
-            commands.append(args)
+            commands.withLock { $0.append(args) }
             if args[1] == "outdated", args[0] == "/brew" {
                 return processOutput(stdout: #"{"casks":[{"name":"sample"}]}"#)
             }
@@ -49,7 +50,7 @@ import Testing
         #expect(try mas.check(app).state == .available)
         _ = try mas.apply(app)
         _ = try docker.apply(app)
-        #expect(commands == [
+        #expect(commands.withLock { $0 } == [
             ["/brew", "outdated", "--cask", "--json=v2", "sample"],
             ["/brew", "upgrade", "--cask", "sample"],
             ["/mas", "outdated"], ["/mas", "update", "123"],
@@ -59,15 +60,15 @@ import Testing
 
     @Test func commandAdapterExpandsLiteralArgumentsAndRequiresTarget() throws {
         let app = sample(path: "/Applications/A space; no shell.app")
-        var seen: [String] = []
+        let seen = OSAllocatedUnfairLock(initialState: [String]())
         let runner = UpdaterProcess { args, _ in
-            seen = args
+            seen.withLock { $0 = args }
             return processOutput(stdout: #"{"state":"available"}"#)
         }
         let backend = UpdateBackend(kind: .command, process: runner,
                                     checkArguments: ["/adapter", "{app_path}", "ID:{bundle_id}"])
         #expect(throws: EngineFailure("Available adapter update must include target_version")) { try backend.check(app) }
-        #expect(seen == ["/adapter", app.path, "ID:\(app.bundleID)"])
+        #expect(seen.withLock { $0 } == ["/adapter", app.path, "ID:\(app.bundleID)"])
     }
 
     @Test func verificationRequiresFreshPrimaryAndNoOriginalPIDs() throws {

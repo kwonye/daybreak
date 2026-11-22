@@ -7,14 +7,15 @@ struct UpdateCheck {
     var detail = ""
 }
 
-struct UpdateBackend {
-    enum Kind: String {
+struct UpdateBackend: Sendable {
+    enum Kind: String, Sendable {
         case restart = "restart-only"
         case sparkle
         case homebrew
         case appStore = "app-store"
         case docker
         case google
+        case microsoft
         case command
     }
 
@@ -41,7 +42,10 @@ struct UpdateBackend {
         case .homebrew:
             let output = try process.checked([executable, "outdated", "--cask", "--json=v2", identifier], 180)
             let data = try object(output)
-            let listed = (data["casks"] as? [[String: Any]])?.contains { $0["name"] as? String == identifier } ?? false
+            guard let casks = data["casks"] as? [[String: Any]] else {
+                throw EngineFailure("Homebrew returned an invalid cask list")
+            }
+            let listed = casks.contains { $0["name"] as? String == identifier }
             return UpdateCheck(state: listed ? .available : .current, detail: "Homebrew cask catalog result")
         case .appStore:
             let output = try process.checked([executable, "outdated"], 180)
@@ -52,6 +56,8 @@ struct UpdateBackend {
                                detail: listed ? "mas reports an update" : "mas did not list this app as outdated")
         case .docker:
             return UpdateCheck(state: .available, detail: "Request native check/apply; availability unknown until finished")
+        case .microsoft:
+            return UpdateCheck(state: .unknown)
         case .google:
             var contents = URL(fileURLWithPath: executable)
             for _ in 0..<5 { contents.deleteLastPathComponent() }
@@ -99,6 +105,8 @@ struct UpdateBackend {
         case .google:
             _ = try check(app)
             _ = try process.checked([executable, "--install", "--productid", app.bundleID, "--user-store"], 900)
+        case .microsoft:
+            _ = try process.checked([executable, "--install", "--apps", identifier, "--wait", "840"], 900)
         case .command:
             _ = try process.checked(expand(applyArguments, app: app), 900)
         }
@@ -140,15 +148,25 @@ struct UpdateBackend {
     }
 }
 
-struct BackendRegistry {
+struct BackendRegistry: Sendable {
     let process: UpdaterProcess
     let config: EngineConfiguration
     let brew: String?
     let casks: [String: String]
+    let includeBundledSparkle: Bool
 
-    init(process: UpdaterProcess, config: EngineConfiguration) {
+    private var sparkleCLI: String? {
+        if let configured = config.sparkleCLI, !configured.isEmpty { return configured }
+        guard includeBundledSparkle else { return nil }
+        let bundle = Bundle.main.executableURL?.deletingLastPathComponent().deletingLastPathComponent()
+        let bundled = bundle?.appendingPathComponent("Helpers/sparkle.app/Contents/MacOS/sparkle").path
+        return bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
+    }
+
+    init(process: UpdaterProcess, config: EngineConfiguration, includeBundledSparkle: Bool = false) {
         self.process = process
         self.config = config
+        self.includeBundledSparkle = includeBundledSparkle
         brew = process.executable(named: "brew")
         casks = brew.map(Self.installedCasks) ?? [:]
     }
@@ -162,8 +180,9 @@ struct BackendRegistry {
             return UpdateBackend(kind: .command, process: process, checkArguments: try argv("check", spec: spec),
                                  applyArguments: try argv("apply", spec: spec))
         }
-        if kind == "sparkle" || (automatic && app.metadata.hints.contains("sparkle") && config.sparkleCLI?.isEmpty == false) {
-            guard let command = executable ?? config.sparkleCLI, isFile(command) else {
+        let preferSparkle = !includeBundledSparkle || casks[app.path] == nil
+        if kind == "sparkle" || (automatic && preferSparkle && app.metadata.hints.contains("sparkle") && sparkleCLI != nil) {
+            guard let command = executable ?? sparkleCLI, isFile(command) else {
                 throw EngineFailure("Official Sparkle CLI not configured or missing")
             }
             return UpdateBackend(kind: .sparkle, process: process, executable: command)
