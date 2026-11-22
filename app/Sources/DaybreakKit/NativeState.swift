@@ -23,16 +23,32 @@ struct NativeState: Sendable {
     }
 
     func withLock<T>(_ action: () throws -> T) throws -> T {
+        let fd = try acquireLock()
+        defer { close(fd) }
+        return try action()
+    }
+
+    func withAsyncLock<T>(_ action: () async throws -> T) async throws -> T {
+        let fd = try acquireLock()
+        defer { close(fd) }
+        return try await action()
+    }
+
+    private func acquireLock() throws -> Int32 {
         try createDirectory(directory)
         let fd = open(directory.appendingPathComponent("run.lock").path, O_CREAT | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw Self.posixError() }
-        defer { close(fd) }
-        guard fchmod(fd, 0o600) == 0 else { throw Self.posixError() }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            if errno == EWOULDBLOCK { throw EngineFailure("Another Daybreak run is active") }
-            throw Self.posixError()
+        do {
+            guard fchmod(fd, 0o600) == 0 else { throw Self.posixError() }
+            guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+                if errno == EWOULDBLOCK { throw EngineFailure("Another Daybreak run is active") }
+                throw Self.posixError()
+            }
+            return fd
+        } catch {
+            close(fd)
+            throw error
         }
-        return try action()
     }
 
     func due(at now: Date, config: EngineConfiguration) throws -> (isDue: Bool, localDate: String) {

@@ -13,6 +13,7 @@ final class UpdatesModel {
     private(set) var installingID: String?
     private(set) var checkedAt: Date?
     var error: String?
+    private(set) var offerAppStoreOnError = false
 
     init(app: AppModel) { self.app = app }
 
@@ -49,6 +50,7 @@ final class UpdatesModel {
         guard !isChecking, installingID == nil, !app.runner.isBusy, app.runner.pendingPlan == nil,
               let client = app.client else { return }
         isChecking = true
+        offerAppStoreOnError = false
         defer { isChecking = false }
         checkedAt = nil
         await reloadInventory()
@@ -68,11 +70,15 @@ final class UpdatesModel {
     func install(_ item: UpdateItem) async {
         guard canCheck, item.action == .install, let client = app.client else { return }
         installingID = item.id
+        offerAppStoreOnError = false
         defer { installingID = nil }
         do {
             replace(try await client.installUpdate(item))
+        } catch is CancellationError {
+            return
         } catch {
             self.error = error.localizedDescription
+            offerAppStoreOnError = item.isMacAppStoreApp
         }
         await app.history.refresh()
         await app.inventory.refresh()
@@ -88,12 +94,19 @@ final class UpdatesModel {
         case .openSystemSettings:
             url = URL(string: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension")
         case .openStore:
-            url = URL(string: "macappstore://showUpdatesPage")
+            openAppStore()
+            return
         case .openRelease(let link), .openLink(let link):
             url = link
         }
         if let url, NSWorkspace.shared.open(url) { return }
         error = "Daybreak couldn’t open the update for \(item.name)."
+    }
+
+    func openAppStore() {
+        if let url = URL(string: "macappstore://showUpdatesPage"), NSWorkspace.shared.open(url) { return }
+        offerAppStoreOnError = false
+        error = "Daybreak couldn’t open App Store Updates."
     }
 
     func saveRepository(_ repository: ReleaseRepository?, for item: UpdateItem) async -> Bool {

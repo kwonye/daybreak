@@ -44,10 +44,10 @@ struct UpdateCatalogTests {
                                           version: "2.0", minimumOsVersion: "14.0", kind: "mac-software")
         let mobile = AppStoreCatalog.Listing(trackId: 10, bundleId: "example.app",
                                              version: "2.0", minimumOsVersion: "14.0", kind: "software")
-        #expect(mac.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2"))
-        #expect(!mac.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "13.2"))
-        #expect(!mac.isNewerMacVersion(bundleID: "other.app", installed: "1.0", macOS: "14.2"))
-        #expect(!mac.isNewerMacVersion(bundleID: "example.app", installed: "2.0", macOS: "14.2"))
-        #expect(!mobile.isNewerMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2"))
+        #expect(mac.compareMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2") == .orderedDescending)
+        #expect(mac.compareMacVersion(bundleID: "example.app", installed: "1.0", macOS: "13.2") == nil)
+        #expect(mac.compareMacVersion(bundleID: "other.app", installed: "1.0", macOS: "14.2") == nil)
+        #expect(mac.compareMacVersion(bundleID: "example.app", installed: "2.0", macOS: "14.2") == .orderedSame)
+        #expect(mobile.compareMacVersion(bundleID: "example.app", installed: "1.0", macOS: "14.2") == nil)
     }
 }

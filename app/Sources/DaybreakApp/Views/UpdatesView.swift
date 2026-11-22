@@ -57,15 +57,23 @@ struct UpdatesView: View {
             Button("Update") { Task { await model.install(item) } }
             Button("Cancel", role: .cancel) {}
         } message: { item in
-            Text(item.isRunning
-                 ? "Save your work first. Daybreak may close and reopen this app to finish the update."
-                 : "Daybreak will update the installed app.")
+            Text(confirmationMessage(for: item))
         }
         .alert("Updates", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            if model.offerAppStoreOnError {
+                Button("Open App Store", action: model.openAppStore)
+            }
             Button("OK") { model.error = nil }
         } message: {
             Text(model.error ?? "")
         }
+    }
+
+    private func confirmationMessage(for item: UpdateItem) -> String {
+        let message = item.isRunning
+            ? "Save your work first. Daybreak may close and reopen this app to finish the update."
+            : "Daybreak will update the installed app."
+        return item.isMacAppStoreApp ? message + " macOS may ask for administrator approval." : message
     }
 
     private var header: some View {
@@ -242,7 +250,7 @@ private struct UpdateListRow: View {
         switch item.status {
         case .readyToCheck: "Ready to check"
         case .available: "Update available"
-        case .current: "Up to date"
+        case .current: item.isMacAppStoreApp ? "Latest listed" : "Up to date"
         case .newerRelease: "Newer release"
         case .checkInApp: "Check manually"
         case .openUpdater: item.action == .install ? "Check and update" : "Check manually"

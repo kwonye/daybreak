@@ -48,6 +48,7 @@ public struct EngineSettings: Sendable, Equatable {
     public var restartCurrent: Bool = true
     static let defaultRestartUnmanaged = false
     public var restartUnmanaged: Bool = Self.defaultRestartUnmanaged
+    public var directAppStoreUpdates = false
 
     public init() {}
 
@@ -168,7 +169,9 @@ public struct ConfigDocument: Sendable, Equatable {
             guard let timeout = value.numberValue else { throw ConfigError.unexpectedType(key: "quit_timeout_seconds", expected: "a number") }
             settings.quitTimeoutSeconds = timeout
         }
-        for (key, path) in [("restart_current", \EngineSettings.restartCurrent), ("restart_unmanaged", \EngineSettings.restartUnmanaged)] {
+        for (key, path) in [("restart_current", \EngineSettings.restartCurrent),
+                            ("restart_unmanaged", \EngineSettings.restartUnmanaged),
+                            ("direct_app_store_updates", \EngineSettings.directAppStoreUpdates)] {
             if let value = root[key] {
                 guard let flag = value.boolValue else { throw ConfigError.unexpectedType(key: key, expected: "true or false") }
                 settings[keyPath: path] = flag
@@ -190,6 +193,9 @@ public struct ConfigDocument: Sendable, Equatable {
         }
         if settings.restartCurrent != original.restartCurrent { root["restart_current"] = .bool(settings.restartCurrent) }
         if settings.restartUnmanaged != original.restartUnmanaged { root["restart_unmanaged"] = .bool(settings.restartUnmanaged) }
+        if settings.directAppStoreUpdates != original.directAppStoreUpdates {
+            root["direct_app_store_updates"] = .bool(settings.directAppStoreUpdates)
+        }
     }
 }
 

@@ -85,6 +85,15 @@ private struct BehaviorSettingsView: View {
                 Toggle("Restart apps that are already current", isOn: $draft.restartCurrent)
                 Toggle("Restart apps without a supported updater", isOn: $draft.restartUnmanaged)
             }
+            Section {
+                Toggle("Install Mac App Store updates in Daybreak", isOn: $draft.directAppStoreUpdates)
+            } header: {
+                Text("Mac App Store")
+            } footer: {
+                Text("macOS may ask for administrator approval. Check for updates again after changing this setting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if !problems.isEmpty {
                 Section {
                     ForEach(problems, id: \.self) {

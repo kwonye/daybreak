@@ -9,6 +9,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
   "quit_timeout_seconds": 60,
   "restart_current": true,
   "restart_unmanaged": false,
+  "direct_app_store_updates": false,
   "whitelist": ["com.example.DoNotInterrupt", "com.jetbrains.*"],
   "sparkle_cli": "/absolute/path/to/sparkle.app/Contents/MacOS/sparkle",
   "apps": {
@@ -42,6 +43,12 @@ Sparkle CLI is optional and not installed by Daybreak. Build it from the officia
 Chrome auto-discovers the existing user updater under `~/Library/Application Support/Google/GoogleUpdater/Current/`. Only one helper is selected; product and existence-checker path must match. You may configure an absolute `executable` for a supported user-scope helper; the corresponding updater must already exist. Do not point this at a system-scope helper.
 
 Explicit backend names: `sparkle`, `homebrew`, `app-store`, `docker`, `google`, `command`, `restart-only`. Homebrew's optional `cask` must match the already-managed path; it cannot adopt an unmanaged app.
+
+## Mac App Store
+
+The Updates pane checks the public App Store catalog directly. It shows the newest version the catalog can identify for the installed Mac app. What the App Store offers can also depend on the signed-in account and rollout.
+
+`direct_app_store_updates` is off by default. It enables individually confirmed updates in the Updates pane for eligible signed copies in `/Applications`. It does not change Preview or scheduled runs. Daybreak uses the system's private commerce interfaces for downloads. If local installation is required, macOS can authorize a one-shot helper that verifies the replacement and its App Store receipt before installing it. Use the App Store for macOS versions or packages that the direct path cannot handle.
 
 ## Supported command adapter
 

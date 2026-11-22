@@ -37,7 +37,9 @@ if [ "$XCODE_MAJOR" -lt 27 ]; then
 else
     set -- "$@" -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$MACOS_SDK"
 fi
-(cd app && swift build -c release --product DaybreakApp "$@" && swift build -c release --product daybreak "$@")
+(cd app && swift build -c release --product DaybreakApp "$@" &&
+    swift build -c release --product daybreak "$@" &&
+    swift build -c release --product daybreak-store-installer "$@")
 BIN_DIR="$(cd app && swift build -c release "$@" --show-bin-path)"
 
 if ! xcrun vtool -show-build "$BIN_DIR/DaybreakApp" | awk '
@@ -52,6 +54,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_DIR/DaybreakApp" "$APP/Contents/MacOS/Daybreak"
 cp "$BIN_DIR/daybreak" "$APP/Contents/Helpers/daybreak"
+cp "$BIN_DIR/daybreak-store-installer" "$APP/Contents/Helpers/daybreak-store-installer"
 cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
     "$APP/Contents/Helpers" "$APP/Contents/Resources"
@@ -92,10 +95,11 @@ else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
 codesign "$@" --identifier co.kwon.daybreak.cli "$APP/Contents/Helpers/daybreak"
+codesign "$@" --identifier co.kwon.daybreak.store-installer "$APP/Contents/Helpers/daybreak-store-installer"
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
-for binary in "$APP/Contents/MacOS/Daybreak" "$APP/Contents/Helpers/daybreak"; do
+for binary in "$APP/Contents/MacOS/Daybreak" "$APP/Contents/Helpers/daybreak" "$APP/Contents/Helpers/daybreak-store-installer"; do
     printf '%s: %s\n' "$(basename "$binary")" "$(lipo -archs "$binary")"
 done
 

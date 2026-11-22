@@ -76,7 +76,7 @@ public actor EngineClient {
         try await UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).check(items, progress: progress)
     }
 
-    public func installUpdate(_ item: UpdateItem) throws -> UpdateItem {
-        try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).install(item)
+    public func installUpdate(_ item: UpdateItem) async throws -> UpdateItem {
+        try await UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory).install(item)
     }
 }

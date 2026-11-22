@@ -7,6 +7,7 @@ struct EngineConfiguration: Sendable {
     let quitTimeout: TimeInterval
     let restartCurrent: Bool
     let restartUnmanaged: Bool
+    let directAppStoreUpdates: Bool
     let patterns: [String]
     let sparkleCLI: String?
     let apps: [String: [String: JSONValue]]
@@ -31,6 +32,7 @@ struct EngineConfiguration: Sendable {
 
         restartUnmanaged = try Self.boolean("restart_unmanaged", in: object, default: EngineSettings.defaultRestartUnmanaged)
         restartCurrent = try Self.boolean("restart_current", in: object, default: true)
+        directAppStoreUpdates = try Self.boolean("direct_app_store_updates", in: object, default: false)
         guard let hour = (object["hour"] ?? .int(8)).intValue, (0...23).contains(hour) else {
             throw EngineFailure("hour must be an integer from 0 through 23")
         }

@@ -161,11 +161,11 @@ struct UpdateCatalog: Sendable {
         return [system] + (try platform.installedApps().map { item(for: $0, microsoft: microsoft).0 })
     }
 
-    func install(_ target: UpdateItem) throws -> UpdateItem {
+    func install(_ target: UpdateItem) async throws -> UpdateItem {
         guard geteuid() != 0, target.action == .install, let path = target.path else {
             throw EngineFailure("This update needs to be opened in its updater.")
         }
-        return try state.withLock {
+        return try await state.withAsyncLock {
             let microsoft = microsoftApps()
             guard let discovered = try platform.installedApps().first(where: { $0.path == path && $0.bundleID == target.bundleID }),
                   !discovered.isProtected, !config.whitelisted(discovered.bundleID), target.isRunning == !discovered.processes.isEmpty,
@@ -178,9 +178,11 @@ struct UpdateCatalog: Sendable {
             }
             let app = ManagedApp(bundleID: discovered.bundleID, name: discovered.name, path: path,
                                  processes: discovered.processes, metadata: metadata, stale: false)
+            let route = try route(for: app, microsoft: microsoft)
+            if case .store = route { return try await installStoreApp(app, target: target) }
             let backend: UpdateBackend
             let check: UpdateCheck
-            switch try route(for: app, microsoft: microsoft) {
+            switch route {
             case .backend(let adapter) where adapter.kind != .restart && adapter.kind != .appStore:
                 backend = adapter
                 check = try adapter.check(app, interactiveCatalog: true)
@@ -241,6 +243,76 @@ struct UpdateCatalog: Sendable {
                                     : "Daybreak couldn’t verify the update. See History for details.")
             }
         }
+    }
+
+    private func installStoreApp(_ app: ManagedApp, target: UpdateItem) async throws -> UpdateItem {
+        guard config.directAppStoreUpdates, target.status == .available, canInstallStoreApp(app),
+              let id = storeID(for: app).flatMap(UInt64.init) else {
+            throw EngineFailure("Direct updates are unavailable for this copy. Open the App Store to update it.")
+        }
+        let date = Date()
+        var outcome = AppOutcome(app: app)
+        outcome.backend = "app-store"
+        let signer = try platform.signer(app)
+        let running = try platform.current(app)
+        guard app.processes.isEmpty ? running.isEmpty : app.stillMatches(running) else {
+            throw EngineFailure("The app’s running state changed. Check for updates again.")
+        }
+        let wasRunning = !running.isEmpty
+        guard try !wasRunning || platform.quit(app) else {
+            throw EngineFailure("The app couldn’t close. Save your work and try again.")
+        }
+        var installerError: (any Error)?
+        do {
+            try await NativeStoreUpdate.install(id: id, app: app, process: process)
+            try platform.checkSignature(app, expectedTeam: signer)
+            let installed = try BundleMetadata.read(app.path, observed: [])
+            let receipt = try StoreReceipt(verified: StoreBundleInstaller.readReceipt(app.path + "/Contents/_MASReceipt/receipt"))
+            guard receipt.bundleID == app.bundleID, receipt.version == installed.version,
+                  StoreBundleInstaller.isStoreSigned(app.path, bundleID: app.bundleID) else {
+                throw EngineFailure("The updated App Store copy couldn’t be verified.")
+            }
+            guard StoreBundleInstaller.versionIncreases(oldVersion: app.metadata.version, oldBuild: app.metadata.build,
+                                                        newVersion: installed.version, newBuild: installed.build) else {
+                throw EngineFailure("The installed version hasn’t changed. Check the App Store before trying again.")
+            }
+            outcome.after = installed.version
+            outcome.afterBuild = installed.build
+            outcome.status = .updated
+            outcome.verification = "The App Store bundle identity, signing team, receipt and newer version were checked."
+            if wasRunning {
+                if try platform.current(app).isEmpty { try platform.relaunch(app) }
+                let (_, pids) = try platform.verify(app, since: date, target: installed.version)
+                outcome.newPIDs = pids
+                outcome.status = .updatedAndRelaunched
+            }
+        } catch {
+            installerError = error
+            outcome.status = error is CancellationError ? .deferred : .failed
+            outcome.detail = error is CancellationError ? "Administrator approval was cancelled." : error.localizedDescription
+            if wasRunning, !outcome.after.isEmpty || error is CancellationError {
+                // Reopen only if the copy still verifies. A timed-out store request can finish later.
+                if (try? platform.current(app).isEmpty) == true,
+                   (try? platform.checkSignature(app, expectedTeam: signer)) != nil {
+                    try? platform.relaunch(app)
+                }
+            }
+        }
+        try state.save(NativeState.json([
+            "started_at": ISO8601DateFormatter().string(from: date), "apply": true,
+            "timezone": config.timeZoneID, "results": [outcome.row],
+        ]), at: date)
+        if let installerError { throw installerError }
+        return UpdateItem(name: target.name, bundleID: target.bundleID, path: target.path,
+                          installedVersion: outcome.after, isRunning: wasRunning, isMacAppStoreApp: true,
+                          repository: target.repository, status: .current, action: .openStore,
+                          detail: "Update installed.")
+    }
+
+    private func canInstallStoreApp(_ app: ManagedApp) -> Bool {
+        config.directAppStoreUpdates && app.metadata.hints.contains("app-store")
+            && StoreBundleInstaller.supportedDestination(app.path) && NativeStoreUpdate.isAvailable
+            && StoreBundleInstaller.isStoreSigned(app.path, bundleID: app.bundleID)
     }
 
     private func installClosed(_ app: ManagedApp, using backend: UpdateBackend, check: UpdateCheck) throws -> AppOutcome {
@@ -356,13 +428,12 @@ struct UpdateCatalog: Sendable {
                 }
             case .store:
                 switch await store?.value[app.path] {
-                case .available:
+                case .available(let version):
                     item.status = .available
+                    item.offeredVersion = version
+                    if canInstallStoreApp(app) { item.action = .install }
                 case .current:
                     item.status = .current
-                case .newer(let version):
-                    item.offeredVersion = version
-                    item.status = .newerRelease
                 case nil:
                     item.status = .openUpdater
                 }
@@ -438,8 +509,7 @@ struct UpdateCatalog: Sendable {
         return nil
     }
 
-    private struct StoreUpdates: Sendable { let installed: Set<String>; let outdated: [String: String] }
-    private enum StoreResult: Sendable { case current, available, newer(String) }
+    private enum StoreResult: Sendable { case current, available(String) }
 
     private func storeResults(_ items: [UpdateItem], apps: [String: ManagedApp]) async -> [String: StoreResult] {
         let local = items.compactMap { item -> (ManagedApp, String)? in
@@ -447,17 +517,14 @@ struct UpdateCatalog: Sendable {
             return (app, id)
         }
         guard !local.isEmpty else { return [:] }
-        let mas = storeUpdates()
-        let lookup = local.filter { mas?.installed.contains($0.1) != true }
-        let listings = await AppStoreCatalog.listings(for: Array(Set(lookup.map(\.1))).sorted())
+        let listings = await AppStoreCatalog.listings(for: Array(Set(local.map(\.1))).sorted())
         var results: [String: StoreResult] = [:]
         for (app, id) in local {
-            if let mas, mas.installed.contains(id) {
-                results[app.path] = mas.outdated[id] != nil ? .available : .current
-            } else if let listing = listings[id],
-                      listing.isNewerMacVersion(bundleID: app.bundleID, installed: app.metadata.version,
-                                               macOS: Self.installedOSVersion) {
-                results[app.path] = .newer(listing.version)
+            if let listing = listings[id],
+               let comparison = listing.compareMacVersion(bundleID: app.bundleID, installed: app.metadata.version,
+                                                           macOS: Self.installedOSVersion) {
+                if comparison == .orderedDescending { results[app.path] = .available(listing.version) }
+                if comparison == .orderedSame { results[app.path] = .current }
             }
         }
         return results
@@ -471,22 +538,6 @@ struct UpdateCatalog: Sendable {
         let aliases = (try? process.checked(["/usr/bin/mdfind", "kMDItemAppStoreAdamID == \(id)"], 10)) ?? ""
         let paths = Set(aliases.split(whereSeparator: \.isNewline).compactMap { canonicalPath(String($0)) })
         return paths == [app.path] ? id : nil
-    }
-
-    private func storeUpdates() -> StoreUpdates? {
-        guard let mas = process.executable(named: "mas"),
-              let installed = try? process.checked([mas, "list"], 30),
-              let outdated = try? process.checked([mas, "outdated"], 90) else { return nil }
-        func rows(_ text: String) -> [Substring] { text.split(whereSeparator: \.isNewline) }
-        func id(_ line: Substring) -> String? {
-            guard let value = line.split(whereSeparator: \.isWhitespace).first,
-                  value.wholeMatch(of: /[0-9]+/) != nil else { return nil }
-            return String(value)
-        }
-        return StoreUpdates(installed: Set(rows(installed).compactMap(id)),
-                            outdated: Dictionary(rows(outdated).compactMap { line in
-            id(line).map { ($0, "") }
-        }, uniquingKeysWith: { first, _ in first }))
     }
 
     private func microsoftUpdates() -> [String: String]? {

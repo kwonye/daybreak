@@ -10,13 +10,12 @@ struct AppStoreCatalog: Sendable {
         let minimumOsVersion: String?
         let kind: String
 
-        func isNewerMacVersion(bundleID: String, installed: String, macOS: String) -> Bool {
+        func compareMacVersion(bundleID: String, installed: String, macOS: String) -> ComparisonResult? {
             guard kind == "mac-software", bundleId == bundleID,
-                  ReleaseRepository.compare(version, installed: installed) == .orderedDescending,
                   let minimumOsVersion,
-                  let compatibility = ReleaseRepository.compare(macOS, installed: minimumOsVersion)
-            else { return false }
-            return compatibility != .orderedAscending
+                  let compatibility = ReleaseRepository.compare(macOS, installed: minimumOsVersion),
+                  compatibility != .orderedAscending else { return nil }
+            return ReleaseRepository.compare(version, installed: installed)
         }
     }
 
