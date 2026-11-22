@@ -123,13 +123,13 @@ Use the packaged `Daybreak.app` to verify Liquid Glass. The bundle build explici
 
 - **Running Apps** lists `inventory` with protected/whitelisted badges and a per-app whitelist checkbox (protected apps can be hidden). Daybreak never includes itself in an update run.
 - **Whitelist** edits `whitelist` in `~/.config/daybreak/config.json`: exact bundle IDs or case-sensitive globs such as `com.jetbrains.*`, added from running apps, from an app in `/Applications`, or by hand (⌘N). Legacy `exclude` entries are shown and can be removed. Delete removes the selection; ⌘Z undoes. Whitelisted apps are never quit, updated or relaunched.
-- **Run** offers **Preview** (⇧⌘P) and **Update Now…** (⇧⌘U), which previews first, then asks for confirmation listing the apps that will be gracefully quit and relaunched; the confirmation lets you choose individual running instances. **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane; ⌘1–⌘4 switch panes.
+- **Run** offers **Preview** (⇧⌘P) and **Update Now…** (⇧⌘U), which previews first, then asks for confirmation listing the apps that will be gracefully quit and relaunched; the confirmation lets you choose individual running instances. **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane; ⌘1–⌘5 switch panes.
 - **Settings › Updates** edits `hour`, `timezone` (searchable picker), `quit_timeout_seconds`, `restart_current` and `restart_unmanaged`. Every other key in the config file (`apps`, `sparkle_cli`, …) is preserved, and a file that does not parse is never overwritten.
-- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Preview, Update Now, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
+- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Check for Updates, Preview, Update Now, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
 
 The app creates no LaunchAgents or schedules and requests no extra permissions.
 
-**Release builds.** The version comes from the root VERSION file. `scripts/build-app.sh` builds arm64 and x86_64 slices of the app and its native CLI, signs the helper and then the bundle (no `--deep`) with the hardened runtime, and zips the result into `.build/dist/`:
+**Release builds.** The version comes from the root VERSION file. `scripts/build-app.sh` builds arm64 and x86_64 slices of the app and its native CLI, signs the bundled helpers and then the app with the hardened runtime for Developer ID builds, and zips the result into `.build/dist/`:
 
 | Variable | Effect |
 | --- | --- |
