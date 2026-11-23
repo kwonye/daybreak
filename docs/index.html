@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Daybreak checks for Mac app updates in one place and lets you decide when to install them.">
+  <meta name="theme-color" content="#f7f4ee">
+  <title>Daybreak — App updates for your Mac</title>
+  <link rel="icon" href="assets/daybreak.png" type="image/png">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <header class="site-header wrap">
+    <a class="brand" href="./"><img src="assets/daybreak.png" width="37" height="37" alt=""> Daybreak</a>
+    <nav aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="https://github.com/kwonye/daybreak">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero wrap" aria-labelledby="headline">
+      <div class="hero-copy">
+        <h1 id="headline">Mac app updates,<br><em>on your terms.</em></h1>
+        <p>See what’s ready to update, install eligible updates together, and choose when your running apps can restart.</p>
+        <div class="actions">
+          <a class="button primary" href="#get-daybreak">Build from source <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="https://github.com/kwonye/daybreak/releases">Releases <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="requirements">macOS 14 or later · Apple silicon and Intel</p>
+      </div>
+
+      <figure class="showcase">
+        <div class="app-window">
+          <div class="window-bar">
+            <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>Updates</span>
+          </div>
+          <div class="window-body">
+            <aside class="sidebar" aria-label="Example sidebar">
+              <span class="selected"><b aria-hidden="true">↓</b> Updates</span>
+              <span><b aria-hidden="true">▣</b> Running Apps</span>
+              <span><b aria-hidden="true">☷</b> Whitelist</span>
+              <span><b aria-hidden="true">◷</b> History</span>
+            </aside>
+            <div class="app-content">
+              <div class="app-summary">
+                <div><strong>2 updates available</strong><small>Last checked just now</small></div>
+                <span class="app-action blue">Update All…</span>
+              </div>
+              <div class="app-row">
+                <span class="tile amber" aria-hidden="true">✷</span>
+                <div><strong>Canvas</strong><small>3.2.0</small></div>
+                <span class="app-action">Update…</span>
+              </div>
+              <div class="app-row">
+                <span class="tile lilac" aria-hidden="true">◈</span>
+                <div><strong>Studio</strong><small>2.1.4</small></div>
+                <span class="app-action">Update…</span>
+              </div>
+              <div class="app-row">
+                <span class="tile gray" aria-hidden="true">▱</span>
+                <div><strong>macOS</strong><small>Up to date</small></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Illustrative Updates view</figcaption>
+      </figure>
+    </section>
+
+    <section class="features wrap" id="features" aria-labelledby="feature-title">
+      <h2 id="feature-title">A simpler update routine</h2>
+      <div class="feature-grid">
+        <article>
+          <div class="feature-icon" aria-hidden="true">↓</div>
+          <h3>See what’s ready</h3>
+          <p>Find app and macOS updates in one place. Install eligible app updates together or open the updater when an update needs your attention.</p>
+        </article>
+        <article>
+          <div class="feature-icon" aria-hidden="true">◷</div>
+          <h3>Choose when to restart</h3>
+          <p>Turn on a schedule when you’re ready. Pick the time and days, and keep the apps you rely on out of scheduled runs.</p>
+        </article>
+        <article>
+          <div class="feature-icon" aria-hidden="true">▣</div>
+          <h3>Keep it in the menu bar</h3>
+          <p>Check for updates, open Settings, or return to Daybreak from the menu bar. Start at login and hide the Dock icon if you like.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="get wrap" id="get-daybreak" aria-labelledby="get-title">
+      <div>
+        <h2 id="get-title">Build Daybreak for your Mac</h2>
+        <p>Build with Xcode 26 or later. The app and its bundled command line tool run on macOS 14 or later and are written in Swift.</p>
+        <a class="text-link" href="https://github.com/kwonye/daybreak#mac-app">Read the build and setup guide <span aria-hidden="true">↗</span></a>
+      </div>
+      <pre aria-label="Build commands"><code>git clone https://github.com/kwonye/daybreak.git
+cd daybreak
+./scripts/build-app.sh
+open .build/Daybreak.app</code></pre>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <a class="brand" href="./"><img src="assets/daybreak.png" width="30" height="30" alt=""> Daybreak</a>
+    <nav aria-label="Project resources">
+      <a href="https://github.com/kwonye/daybreak">Source</a>
+      <a href="https://github.com/kwonye/daybreak/issues">Issues</a>
+      <a href="https://github.com/kwonye/daybreak/releases">Releases</a>
+    </nav>
+  </footer>
+</body>
+</html>

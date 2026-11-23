@@ -2,6 +2,8 @@
 
 A local macOS update coordinator for the apps that are running when the daily job starts. It checks supported updaters, applies updates, gracefully closes/reopens apps when needed, and verifies that fresh processes launched from the installed bundles.
 
+[Daybreak website](https://kwonye.github.io/daybreak/)
+
 ## Set up Daybreak
 
 Guided setup opens on first launch and is available again under **Settings → General → Set Up Daybreak**. Choose which updates and restarts to allow, a time and cadence, whether Daybreak starts at login, and how it appears in the menu bar and Dock.
