@@ -7,15 +7,23 @@ struct SetupView: View {
 
         var title: String {
             switch self {
-            case .updates: "Choose how apps update"
-            case .schedule: "Set a restart schedule"
-            case .appearance: "Keep Daybreak within reach"
+            case .updates: "Welcome to Daybreak"
+            case .schedule: "Pick a good time"
+            case .appearance: "Make Daybreak yours"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .updates: "Choose how you’d like to keep your apps up to date."
+            case .schedule: "Choose when Daybreak can update and restart your apps."
+            case .appearance: "Choose when Daybreak opens and where you’ll find it."
             }
         }
 
         var symbol: String {
             switch self {
-            case .updates: "arrow.down.app"
+            case .updates: "sunrise"
             case .schedule: "calendar.badge.clock"
             case .appearance: "menubar.rectangle"
             }
@@ -52,23 +60,29 @@ struct SetupView: View {
             Form {
                 switch step {
                 case .updates:
-                    UpdateBehaviorFields(draft: $draft)
+                    UpdateBehaviorFields(draft: $draft, context: .setup)
                 case .schedule:
-                    ScheduleFields(draft: $draft)
+                    ScheduleFields(draft: $draft, context: .setup)
                 case .appearance:
-                    Section("Startup") {
-                        Toggle("Start at Login", isOn: $startAtLogin)
+                    Section("When you sign in") {
+                        Toggle("Open Daybreak at login", isOn: $startAtLogin)
                             .disabled(!model.loginItem.isAvailable)
                             .accessibilityIdentifier("setup.startAtLogin")
                     }
-                    Section("Menu Bar and Dock") {
-                        Toggle("Show Daybreak in the menu bar", isOn: $showMenuBar)
+                    Section {
+                        Toggle("Keep Daybreak in the menu bar", isOn: $showMenuBar)
                             .disabled(hideDockIcon)
                         Toggle("Hide the Dock icon", isOn: $hideDockIcon)
                             .onChange(of: hideDockIcon) { if hideDockIcon { showMenuBar = true } }
+                    } header: {
+                        Text("Where to find Daybreak")
+                    } footer: {
+                        Text("With the Dock icon hidden, you can open Daybreak from the menu bar.")
                     }
-                    Section("Running Apps") {
-                        Toggle("Hide protected system apps", isOn: $hideProtected)
+                    Section {
+                        DisclosureGroup("More display options") {
+                            Toggle("Hide protected apps", isOn: $hideProtected)
+                        }
                     }
                 }
             }
@@ -95,10 +109,13 @@ struct SetupView: View {
                 .frame(width: 48, height: 48)
                 .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(step.title).font(.title2.weight(.semibold))
+            VStack(alignment: .leading, spacing: 5) {
                 Text("Step \(step.rawValue + 1) of \(Step.allCases.count)")
-                    .font(.subheadline)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(step.title).font(.title2.weight(.semibold))
+                Text(step.subtitle)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -110,7 +127,7 @@ struct SetupView: View {
 
     private var footer: some View {
         HStack {
-            Button("Set Up Later") {
+            Button("Not Now") {
                 model.completeSetup()
                 dismiss()
             }
@@ -122,7 +139,7 @@ struct SetupView: View {
                     error = nil
                 }
             }
-            Button(step == .appearance ? "Finish Setup" : "Continue") {
+            Button(step == .appearance ? "Done" : "Continue") {
                 if let next = Step(rawValue: step.rawValue + 1) {
                     step = next
                 } else {
@@ -157,42 +174,70 @@ struct SetupView: View {
     }
 }
 
+enum SetupFieldContext {
+    case settings, setup
+}
+
 struct UpdateBehaviorFields: View {
     @Binding var draft: EngineSettings
+    var context: SetupFieldContext = .settings
 
     var body: some View {
         Section {
-            Toggle("Install Mac App Store updates in Daybreak", isOn: $draft.directAppStoreUpdates)
+            Toggle(context == .setup ? "Install App Store updates here" : "Install Mac App Store updates in Daybreak",
+                   isOn: $draft.directAppStoreUpdates)
         } header: {
             Text("Mac App Store")
         } footer: {
-            Text("macOS may ask for administrator approval. These installs are started individually from Updates.")
+            if context == .setup {
+                Text("Choose each App Store update from the Updates tab. Your Mac may ask you to approve the install.")
+            } else {
+                Text("macOS may ask for administrator approval. These installs are started individually from Updates.")
+            }
         }
         Section {
-            LabeledContent("Quit timeout") {
+            if context == .setup {
+                DisclosureGroup("More restart options") {
+                    restartOptions
+                }
+            } else {
+                restartOptions
+            }
+        } header: {
+            if context == .settings { Text("Restarts") }
+        } footer: {
+            Text(context == .setup
+                 ? "Daybreak gives apps a chance to save your work before they close."
+                 : "Daybreak asks apps to quit normally and respects your whitelist.")
+        }
+    }
+
+    private var restartOptions: some View {
+        Group {
+            let timeoutTitle = context == .setup ? "Wait for apps to close" : "Quit timeout"
+            LabeledContent(timeoutTitle) {
                 HStack {
-                    TextField("Quit timeout", value: $draft.quitTimeoutSeconds, format: .number)
+                    TextField(timeoutTitle, value: $draft.quitTimeoutSeconds, format: .number)
                         .labelsHidden()
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 64)
-                    Stepper("Quit timeout", value: $draft.quitTimeoutSeconds, in: 1...600, step: 5)
+                    Stepper(timeoutTitle, value: $draft.quitTimeoutSeconds, in: 1...600, step: 5)
                         .labelsHidden()
                     Text("seconds (1–600)").foregroundStyle(.secondary)
                 }
             }
-            Toggle("Restart apps that are already current", isOn: $draft.restartCurrent)
-            Toggle("Restart apps without a supported updater", isOn: $draft.restartUnmanaged)
-        } header: {
-            Text("Restarts")
-        } footer: {
-            Text("Daybreak asks apps to quit normally and respects your whitelist.")
+            Toggle(context == .setup ? "Restart apps that are already up to date" : "Restart apps that are already current",
+                   isOn: $draft.restartCurrent)
+            Toggle(context == .setup ? "Restart apps Daybreak can’t update" : "Restart apps without a supported updater",
+                   isOn: $draft.restartUnmanaged)
         }
     }
 }
 
 struct ScheduleFields: View {
     @Binding var draft: EngineSettings
+    var context: SetupFieldContext = .settings
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
@@ -201,25 +246,37 @@ struct ScheduleFields: View {
 
     var body: some View {
         Section {
-            Toggle("Run automatically while Daybreak is open", isOn: $draft.automaticRuns)
-            Picker("Repeat", selection: $draft.cadence) {
-                ForEach(ScheduleCadence.allCases) { Text($0.title).tag($0) }
-            }
-            if draft.cadence == .weekly {
-                Picker("Day", selection: $draft.weekday) {
-                    ForEach(ScheduleWeekday.allCases) { Text($0.title).tag($0) }
-                }
-            }
-            DatePicker("Time", selection: time, displayedComponents: .hourAndMinute)
-                .environment(\.calendar, calendar)
-                .environment(\.timeZone, .gmt)
-            LabeledContent("Time zone") {
-                TimeZonePicker(selection: $draft.timezone, keep: [draft.timezone])
-            }
+            Toggle(context == .setup ? "Update and restart apps on a schedule" : "Run automatically while Daybreak is open",
+                   isOn: $draft.automaticRuns)
+            if context == .settings || draft.automaticRuns { timingOptions }
         } header: {
             Text("Schedule")
         } footer: {
-            Text("A missed run can start later on the same day. The schedule also applies to CLI runs using --due.")
+            if context == .setup {
+                Text(draft.automaticRuns
+                     ? "If you miss the chosen time, Daybreak can catch up later that day while it’s open."
+                     : "Daybreak needs to be open to run on a schedule.")
+            } else {
+                Text("A missed run can start later on the same day. The schedule also applies to CLI runs using --due.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var timingOptions: some View {
+        Picker("Repeat", selection: $draft.cadence) {
+            ForEach(ScheduleCadence.allCases) { Text($0.title).tag($0) }
+        }
+        if draft.cadence == .weekly {
+            Picker("Day", selection: $draft.weekday) {
+                ForEach(ScheduleWeekday.allCases) { Text($0.title).tag($0) }
+            }
+        }
+        DatePicker("Time", selection: time, displayedComponents: .hourAndMinute)
+            .environment(\.calendar, calendar)
+            .environment(\.timeZone, .gmt)
+        LabeledContent("Time zone") {
+            TimeZonePicker(selection: $draft.timezone, keep: [draft.timezone])
         }
     }
 
