@@ -16,7 +16,7 @@ Open **Updates** in Daybreak to check automatically if the last check was at lea
 - Daybreak lists available macOS updates and opens System Settings to install them. In **Mac App Store**, Daybreak checks Apple's public listing without an extra tool. Enable **Settings → Updates → Install Mac App Store updates in Daybreak** to install eligible updates for App Store apps in `/Applications` from Daybreak. The App Store controls account eligibility, and macOS may ask for administrator approval. If the current OS or app layout does not support direct installation, use **Open Updater**.
 - For apps that manage their own updates, **Open App** takes you to the installed copy.
 
-Interactive installations respect the whitelist and appear in History. Scheduled runs and the CLI remain available for the running-app workflow.
+Choose **Update All** to install eligible updates one at a time after a single confirmation. Interactive installations respect the whitelist and appear in History. Scheduled runs and the CLI remain available for the running-app workflow.
 
 **The run command previews changes by default. This is a conservative v0.1, not a universal updater.** There is no supported universal external API for every Sparkle or Electron application. Unsupported apps can be restarted to activate updates they already downloaded, but are explicitly reported as `restart_only_unverified`.
 

@@ -2,9 +2,21 @@ import DaybreakKit
 import SwiftUI
 
 struct UpdatesView: View {
+    private enum Confirmation {
+        case individual(UpdateItem)
+        case all([UpdateItem])
+
+        var title: String {
+            switch self {
+            case .individual(let item): "Update \(item.name)?"
+            case .all(let items): items.count == 1 ? "Update 1 app?" : "Update \(items.count) apps?"
+            }
+        }
+    }
+
     let model: UpdatesModel
     @State private var search = ""
-    @State private var confirm: UpdateItem?
+    @State private var confirm: Confirmation?
 
     private var visible: [UpdateItem] {
         model.items.filter {
@@ -50,13 +62,25 @@ struct UpdatesView: View {
         .onChange(of: model.canCheck) {
             if model.canCheck { Task { await model.load() } }
         }
-        .confirmationDialog("Update \(confirm?.name ?? "app")?",
+        .confirmationDialog(confirm?.title ?? "Update apps?",
                             isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
-                            titleVisibility: .visible, presenting: confirm) { item in
-            Button("Update") { Task { await model.install(item) } }
+                            titleVisibility: .visible, presenting: confirm) { plan in
+            switch plan {
+            case .individual(let item):
+                Button("Update") { Task { await model.install(item) } }
+            case .all(let items):
+                Button("Update All") { Task { await model.installAll(items) } }
+            }
             Button("Cancel", role: .cancel) {}
-        } message: { item in
-            Text(confirmationMessage(for: item))
+        } message: { plan in
+            switch plan {
+            case .individual(let item):
+                Text(confirmationMessage(for: item))
+            case .all(let items):
+                let message = "Save your work first. Daybreak updates apps one at a time and may close and reopen running apps."
+                Text(items.contains(where: \.isMacAppStoreApp)
+                     ? message + " macOS may ask for administrator approval." : message)
+            }
         }
         .alert("Updates", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             if model.offerAppStoreOnError {
@@ -86,7 +110,11 @@ struct UpdatesView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(summary).font(.title2.weight(.semibold))
                     .accessibilityIdentifier("updates.summary")
-                if let checkedAt = model.checkedAt, !model.isChecking {
+                if let progress = model.batchProgress {
+                    ProgressView(value: Double(progress.current - 1), total: Double(progress.total))
+                        .controlSize(.small)
+                        .accessibilityLabel("Update progress")
+                } else if let checkedAt = model.checkedAt, !model.isChecking {
                     Text("Last checked \(checkedAt, style: .relative) ago")
                         .foregroundStyle(.secondary)
                 } else if !model.isChecking {
@@ -100,10 +128,15 @@ struct UpdatesView: View {
                     .accessibilityLabel("Checking for updates")
             }
             Button("Check for Updates") { Task { await model.check() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .controlSize(.large)
                 .disabled(!model.canCheck)
                 .accessibilityIdentifier("updates.check")
+            Button("Update All…") { confirm = .all(model.batchCandidates) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!model.canCheck || model.batchCandidates.isEmpty)
+                .accessibilityIdentifier("updates.updateAll")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 19)
@@ -111,6 +144,7 @@ struct UpdatesView: View {
     }
 
     private var summary: String {
+        if let progress = model.batchProgress { return "Updating \(progress.current) of \(progress.total)…" }
         if model.isChecking { return "Checking for updates…" }
         if model.checkedAt != nil {
             let count = model.hasUpdates
@@ -128,7 +162,7 @@ struct UpdatesView: View {
                 ForEach(items) { item in
                     UpdateListRow(item: item, isInstalling: model.installingID == item.id,
                                   canInstall: model.canCheck, activate: {
-                        if item.action == .install { confirm = item } else { model.open(item) }
+                        if item.action == .install { confirm = .individual(item) } else { model.open(item) }
                     })
                     .accessibilityIdentifier("updates.row.\(item.bundleID ?? "macos")")
                 }

@@ -13,6 +13,7 @@ final class UpdatesModel {
     private(set) var state: LoadState = .idle
     private(set) var isChecking = false
     private(set) var installingID: String?
+    private(set) var batchProgress: (current: Int, total: Int)?
     private(set) var checkedAt: Date?
     var error: String?
     private(set) var offerAppStoreOnError = false
@@ -22,6 +23,7 @@ final class UpdatesModel {
     var isBusy: Bool { isChecking || state.isLoading || installingID != nil }
     var canCheck: Bool { !isBusy && app.isEngineReady && !app.scheduler.isBusy }
     var hasUpdates: Int { items.filter { $0.status == .available }.count }
+    var batchCandidates: [UpdateItem] { items.filter { $0.status == .available && $0.action == .install } }
 
     func load() async {
         let needsInventory = state == .idle || cacheClient !== app.client
@@ -102,20 +104,41 @@ final class UpdatesModel {
     }
 
     func install(_ item: UpdateItem) async {
-        guard canCheck, item.action == .install, let client = app.client else { return }
-        installingID = item.id
+        await install([item], asBatch: false)
+    }
+
+    func installAll(_ approved: [UpdateItem]) async {
+        let current = Set(batchCandidates.map(\.id))
+        await install(approved.filter { current.contains($0.id) }, asBatch: true)
+    }
+
+    private func install(_ targets: [UpdateItem], asBatch: Bool) async {
+        guard canCheck, let first = targets.first, first.action == .install, let client = app.client else { return }
+        installingID = first.id
+        error = nil
         offerAppStoreOnError = false
-        defer { installingID = nil }
-        do {
-            replace(try await client.installUpdate(item))
-        } catch is CancellationError {
-            return
-        } catch {
-            self.error = error.localizedDescription
-            offerAppStoreOnError = item.isMacAppStoreApp
+        defer {
+            installingID = nil
+            batchProgress = nil
+        }
+        var messages: [String] = []
+        for (index, item) in targets.enumerated() {
+            installingID = item.id
+            if asBatch { batchProgress = (index + 1, targets.count) }
+            do {
+                replace(try await client.installUpdate(item))
+            } catch is CancellationError {
+                if asBatch { messages.append("Update All stopped. Any remaining apps can be updated later.") }
+                break
+            } catch {
+                let message = error.localizedDescription
+                messages.append(asBatch ? "\(item.name)\n\(message)" : message)
+                offerAppStoreOnError = offerAppStoreOnError || item.isMacAppStoreApp
+            }
         }
         await app.history.refresh()
         await app.inventory.refresh()
+        if !messages.isEmpty { error = messages.joined(separator: "\n\n") }
     }
 
     func open(_ item: UpdateItem) {
