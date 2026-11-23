@@ -4,7 +4,7 @@ A local macOS update coordinator for the apps that are running when the daily jo
 
 ## Set up Daybreak
 
-Guided setup opens on first launch and is available again under **Settings → General → Set Up Daybreak**. Choose which updates and restarts to allow, a time and cadence, and how Daybreak appears in the menu bar and Dock.
+Guided setup opens on first launch and is available again under **Settings → General → Set Up Daybreak**. Choose which updates and restarts to allow, a time and cadence, whether Daybreak starts at login, and how it appears in the menu bar and Dock.
 
 Automatic runs stay off until enabled. When enabled, Daybreak checks the schedule while it’s running, including with its window closed if the menu bar item is active. It does not wake your Mac or replay missed days. If you already use an external job, you can keep that as your trigger.
 
@@ -131,7 +131,7 @@ Use the packaged `Daybreak.app` to verify Liquid Glass. The bundle build explici
 - **Whitelist** edits `whitelist` in `~/.config/daybreak/config.json`: exact bundle IDs or case-sensitive globs such as `com.jetbrains.*`, added from running apps, from an app in `/Applications`, or by hand (⌘N). Legacy `exclude` entries are shown and can be removed. Delete removes the selection; ⌘Z undoes. Whitelisted apps are never quit, updated or relaunched.
 - **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane.
 - **Settings › Updates** edits `hour`, `timezone` (searchable picker), `quit_timeout_seconds`, `restart_current` and `restart_unmanaged`. Every other key in the config file (`apps`, `sparkle_cli`, …) is preserved, and a file that does not parse is never overwritten.
-- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Show or hide the menu bar item and Dock icon here. The menu bar popover offers Check for Updates, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
+- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Start Daybreak at login and choose whether to show its menu bar item and Dock icon here. The menu bar popover offers Check for Updates, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
 
 The app’s optional schedule runs inside Daybreak and creates no LaunchAgents.
 

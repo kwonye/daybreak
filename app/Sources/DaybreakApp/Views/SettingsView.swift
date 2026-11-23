@@ -220,6 +220,7 @@ private struct GeneralSettingsView: View {
     @Bindable var model: AppModel
     @State private var draftStateFolder = ""
     @State private var showingSetup = false
+    @State private var loginItemError: String?
 
     var body: some View {
         Form {
@@ -231,6 +232,28 @@ private struct GeneralSettingsView: View {
                     }
                     .disabled(!model.isEngineReady)
                 }
+            }
+            Section {
+                Toggle("Start at Login", isOn: Binding(
+                    get: { model.loginItem.isRegistered },
+                    set: { enabled in
+                        do { try model.loginItem.setRegistered(enabled) }
+                        catch { loginItemError = error.localizedDescription }
+                    }
+                ))
+                .disabled(!model.loginItem.isAvailable)
+                .accessibilityIdentifier("settings.startAtLogin")
+                if model.loginItem.needsApproval {
+                    LabeledContent("Approval required") {
+                        Button("Open Login Items…", action: model.loginItem.openLoginItemsSettings)
+                    }
+                }
+            } header: {
+                Text("Startup")
+            } footer: {
+                Text(model.loginItem.isAvailable
+                     ? "Open Daybreak when you sign in to your Mac."
+                     : "Start at Login is available in the packaged Daybreak app.")
             }
             Section {
                 Toggle("Show Daybreak in the menu bar", isOn: $model.showMenuBar)
@@ -272,8 +295,21 @@ private struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { draftStateFolder = model.stateDirectoryPath }
+        .onAppear {
+            draftStateFolder = model.stateDirectoryPath
+            model.loginItem.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.loginItem.refresh()
+        }
         .sheet(isPresented: $showingSetup) { SetupView(model: model) }
+        .alert("Couldn’t Change Start at Login", isPresented: Binding(
+            get: { loginItemError != nil }, set: { if !$0 { loginItemError = nil } }
+        )) {
+            Button("OK") { loginItemError = nil }
+        } message: {
+            Text(loginItemError ?? "")
+        }
     }
 }
 

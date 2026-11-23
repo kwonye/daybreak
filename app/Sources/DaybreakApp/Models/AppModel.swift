@@ -149,6 +149,7 @@ final class AppModel {
 
     let configStore: ConfigStore
     let launchOptions: LaunchOptions
+    let loginItem = LoginItemModel()
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
     @ObservationIgnored private(set) lazy var updates = UpdatesModel(app: self)
     @ObservationIgnored private(set) lazy var inventory = InventoryModel(app: self)

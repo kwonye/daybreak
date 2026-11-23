@@ -30,6 +30,8 @@ struct SetupView: View {
     @State private var showMenuBar: Bool
     @State private var hideDockIcon: Bool
     @State private var hideProtected: Bool
+    @State private var startAtLogin: Bool
+    @State private var originalStartAtLogin: Bool
     @State private var error: String?
 
     init(model: AppModel) {
@@ -40,6 +42,8 @@ struct SetupView: View {
         _showMenuBar = State(initialValue: model.showMenuBar)
         _hideDockIcon = State(initialValue: model.hideDockIcon)
         _hideProtected = State(initialValue: model.inventory.hideProtected)
+        _startAtLogin = State(initialValue: model.loginItem.isRegistered)
+        _originalStartAtLogin = State(initialValue: model.loginItem.isRegistered)
     }
 
     var body: some View {
@@ -52,6 +56,11 @@ struct SetupView: View {
                 case .schedule:
                     ScheduleFields(draft: $draft)
                 case .appearance:
+                    Section("Startup") {
+                        Toggle("Start at Login", isOn: $startAtLogin)
+                            .disabled(!model.loginItem.isAvailable)
+                            .accessibilityIdentifier("setup.startAtLogin")
+                    }
                     Section("Menu Bar and Dock") {
                         Toggle("Show Daybreak in the menu bar", isOn: $showMenuBar)
                             .disabled(hideDockIcon)
@@ -131,6 +140,13 @@ struct SetupView: View {
             error = model.config.actionError
             model.config.actionError = nil
             return
+        }
+        if startAtLogin != originalStartAtLogin {
+            do { try model.loginItem.setRegistered(startAtLogin) }
+            catch {
+                self.error = error.localizedDescription
+                return
+            }
         }
         model.showMenuBar = showMenuBar
         model.hideDockIcon = hideDockIcon
