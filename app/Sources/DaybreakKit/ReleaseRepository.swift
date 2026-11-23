@@ -57,14 +57,3 @@ public struct ReleaseRepository: Sendable, Equatable {
         return published.lexicographicallyPrecedes(local) ? .orderedAscending : .orderedDescending
     }
 }
-
-extension ConfigDocument {
-    public mutating func setReleaseRepository(_ repository: ReleaseRepository?, for bundleID: String) throws {
-        let key = "release_repositories"
-        guard case .object(var repositories) = root[key] ?? .object([:]) else {
-            throw ConfigError.unexpectedType(key: key, expected: "an object keyed by bundle ID")
-        }
-        repositories[bundleID] = repository.map { .string($0.name) }
-        root[key] = repositories.isEmpty ? nil : .object(repositories)
-    }
-}

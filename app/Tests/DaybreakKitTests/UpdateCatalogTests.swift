@@ -20,16 +20,6 @@ struct UpdateCatalogTests {
         #expect(ReleaseRepository.compare("v2.10-rc.1", installed: "2.10.0") == nil)
     }
 
-    @Test func savingReleasePagePreservesOtherConfiguration() throws {
-        let original = try ConfigDocument.parse(Data(#"{"whitelist":["com.example.*"],"apps":{"com.example.App":{"backend":"command"}}}"#.utf8))
-        var document = original
-        try document.setReleaseRepository(try #require(ReleaseRepository("owner/project")), for: "com.example.App")
-        #expect(document.root["release_repositories"] == .object(["com.example.App": .string("owner/project")]))
-        #expect(document.root["apps"] == original.root["apps"])
-        try document.setReleaseRepository(nil, for: "com.example.App")
-        #expect(document == original)
-    }
-
     @Test func updaterOutputDoesNotTurnUnknownIntoCurrent() {
         #expect(UpdateCatalog.systemLabels("Finding available software") == [])
         #expect(UpdateCatalog.systemLabels("  * Label: macOS 27.1-26B101\n    Title: macOS 27.1, Version: 27.1") == ["macOS 27.1-26B101"])

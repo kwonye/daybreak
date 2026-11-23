@@ -14,7 +14,7 @@ Open **Updates** in Daybreak to check automatically if the last check was at lea
 
 - Daybreak can install compatible Sparkle and Homebrew updates, request a scoped update from Chrome, and install updates offered for apps registered with Microsoft AutoUpdate. The packaged app includes the official Sparkle helper. Docker's native update action is available when its workload interruption setting is enabled.
 - Daybreak lists available macOS updates and opens System Settings to install them. In **Mac App Store**, Daybreak checks Apple's public listing without an extra tool. Enable **Settings → Updates → Install Mac App Store updates in Daybreak** to install eligible updates for App Store apps in `/Applications` from Daybreak. The App Store controls account eligibility, and macOS may ask for administrator approval. If the current OS or app layout does not support direct installation, use **Open Updater**.
-- For apps that manage their own update flow, **Open App** takes you to the installed copy. To track a public GitHub release for an app with a manual update flow, use its **Track Release Page** menu and enter the developer's release URL. Daybreak compares conventional stable version tags and opens the release page for review.
+- For apps that manage their own updates, **Open App** takes you to the installed copy.
 
 Interactive installations respect the whitelist and appear in History. Scheduled runs and the CLI remain available for the running-app workflow.
 

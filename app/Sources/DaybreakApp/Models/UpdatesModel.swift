@@ -143,21 +143,6 @@ final class UpdatesModel {
         error = "Daybreak couldn’t open App Store Updates."
     }
 
-    func saveRepository(_ repository: ReleaseRepository?, for item: UpdateItem) async -> Bool {
-        guard !isBusy, let bundleID = item.bundleID else { return false }
-        do {
-            try app.configStore.update { try $0.setReleaseRepository(repository, for: bundleID) }
-            // Refresh the edited row only, preserving the other check results.
-            if let replacement = try await app.client?.updateInventory().first(where: { $0.id == item.id }) {
-                replace(replacement)
-            }
-            return true
-        } catch {
-            self.error = "Daybreak couldn’t save the release page. Check your configuration and try again."
-            return false
-        }
-    }
-
     private func replace(_ result: UpdateItem) {
         if let index = items.firstIndex(where: { $0.id == result.id }) { items[index] = result }
     }

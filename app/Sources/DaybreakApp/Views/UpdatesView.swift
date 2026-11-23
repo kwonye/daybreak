@@ -5,7 +5,6 @@ struct UpdatesView: View {
     let model: UpdatesModel
     @State private var search = ""
     @State private var confirm: UpdateItem?
-    @State private var editingRepository: UpdateItem?
 
     private var visible: [UpdateItem] {
         model.items.filter {
@@ -50,9 +49,6 @@ struct UpdatesView: View {
         .task { await model.load() }
         .onChange(of: model.canCheck) {
             if model.canCheck { Task { await model.load() } }
-        }
-        .sheet(item: $editingRepository) { item in
-            ReleaseRepositorySheet(item: item, model: model)
         }
         .confirmationDialog("Update \(confirm?.name ?? "app")?",
                             isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
@@ -133,8 +129,6 @@ struct UpdatesView: View {
                     UpdateListRow(item: item, isInstalling: model.installingID == item.id,
                                   canInstall: model.canCheck, activate: {
                         if item.action == .install { confirm = item } else { model.open(item) }
-                    }, editRepository: {
-                        editingRepository = item
                     })
                     .accessibilityIdentifier("updates.row.\(item.bundleID ?? "macos")")
                 }
@@ -148,7 +142,6 @@ private struct UpdateListRow: View {
     let isInstalling: Bool
     let canInstall: Bool
     let activate: () -> Void
-    let editRepository: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -180,8 +173,6 @@ private struct UpdateListRow: View {
                 .frame(width: 128, alignment: .leading)
             primaryAction
                 .frame(width: 116)
-            overflow
-                .frame(width: 22)
         }
         .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
@@ -217,24 +208,6 @@ private struct UpdateListRow: View {
             .buttonStyle(.bordered)
             .disabled(action == .install && !canInstall)
             .accessibilityLabel("\(action.title) for \(item.name)")
-        } else {
-            Color.clear.frame(height: 0).accessibilityHidden(true)
-        }
-    }
-
-    @ViewBuilder
-    private var overflow: some View {
-        if item.bundleID != nil, item.status == .checkInApp || item.status == .failed || item.repository != nil {
-            Menu {
-                Button(item.repository == nil ? "Track Release Page…" : "Edit Release Page…", action: editRepository)
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .disabled(!canInstall)
-            .accessibilityLabel("More actions for \(item.name)")
         } else {
             Color.clear.frame(height: 0).accessibilityHidden(true)
         }
@@ -279,55 +252,6 @@ private struct UpdateListRow: View {
         case .available, .newerRelease: .accentColor
         case .failed: .orange
         default: .secondary
-        }
-    }
-}
-
-private struct ReleaseRepositorySheet: View {
-    let item: UpdateItem
-    let model: UpdatesModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var input: String
-    @State private var isSaving = false
-
-    init(item: UpdateItem, model: UpdatesModel) {
-        self.item = item
-        self.model = model
-        _input = State(initialValue: item.repository?.releasesURL.absoluteString ?? "")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Track Releases for \(item.name)").font(.headline)
-            Text("Paste the developer’s public release page to see when a newer version is published.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField("https://github.com/owner/project/releases", text: $input)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Release page URL")
-            HStack {
-                if item.repository != nil {
-                    Button("Remove", role: .destructive) { save(nil) }
-                }
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save") {
-                    if let repository = ReleaseRepository(input) { save(repository) }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(ReleaseRepository(input) == nil)
-            }
-        }
-        .disabled(isSaving)
-        .padding(22)
-        .frame(width: 430)
-    }
-
-    private func save(_ repository: ReleaseRepository?) {
-        isSaving = true
-        Task {
-            if await model.saveRepository(repository, for: item) { dismiss() }
-            isSaving = false
         }
     }
 }
