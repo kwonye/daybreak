@@ -1,0 +1,5 @@
+[plugins."daybreak-macos-qa@daybreak"]
+enabled = true
+
+[plugins."daybreak-maintenance@daybreak"]
+enabled = true

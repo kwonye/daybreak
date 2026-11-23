@@ -1,0 +1,32 @@
+{
+  "name": "daybreak",
+  "interface": {
+    "displayName": "Daybreak"
+  },
+  "plugins": [
+    {
+      "name": "daybreak-macos-qa",
+      "source": {
+        "source": "local",
+        "path": "./plugins/daybreak-macos-qa"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    },
+    {
+      "name": "daybreak-maintenance",
+      "source": {
+        "source": "local",
+        "path": "./plugins/daybreak-maintenance"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}
