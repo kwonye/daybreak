@@ -1,23 +1,53 @@
 name: Release
-# Builds a Developer ID signed, notarized Daybreak.app and attaches it to a GitHub release.
-# Run manually, or push a tag `vX.Y.Z` matching the version in pyproject.toml.
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
+    paths:
+      - 'app/**'
+      - 'examples/**'
+      - 'scripts/**'
+      - 'VERSION'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'examples/**'
+      - 'scripts/**'
+      - 'VERSION'
+      - '.github/workflows/**'
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
   mac-app:
     runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
-      - name: Check version and required secrets
+        with:
+          persist-credentials: false
+      - name: Check version
+        id: version
+        run: |
+          version="$(./scripts/version)"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Test
+        run: swift test --package-path app
+      - name: Check required signing secrets
+        if: github.ref_type == 'tag'
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -33,16 +63,8 @@ jobs:
             echo "::error::Missing repository secrets:$missing"
             exit 1
           fi
-          version="$(./scripts/version)"
-          echo "VERSION=$version" >> "$GITHUB_ENV"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $version"
-            exit 1
-          fi
-      - name: Test
-        run: |
-          swift test --package-path app
       - name: Import signing certificate into a temporary keychain
+        if: github.ref_type == 'tag'
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -66,6 +88,7 @@ jobs:
           echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Store notarization credentials
+        if: github.ref_type == 'tag'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -75,24 +98,41 @@ jobs:
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
           echo "NOTARY_PROFILE=daybreak-notary" >> "$GITHUB_ENV"
-      - name: Build, sign, notarize and staple
+      - name: Build release ZIP
         run: ./scripts/build-app.sh
-      - name: Verify
+      - name: Verify release bundle and CLI
         run: |
-          codesign --verify --strict --verbose=2 .build/Daybreak.app
+          codesign --verify --deep --strict --verbose=2 .build/Daybreak.app
+          env -i PATH=/usr/bin:/bin .build/Daybreak.app/Contents/Helpers/daybreak status --config "$RUNNER_TEMP/daybreak-config.json" --state-dir "$RUNNER_TEMP/daybreak-state"
+          unzip -t ".build/dist/Daybreak-$VERSION.zip"
+      - name: Verify notarization
+        if: github.ref_type == 'tag'
+        run: |
           xcrun stapler validate .build/Daybreak.app
           spctl --assess --type execute --verbose .build/Daybreak.app
       - uses: actions/upload-artifact@v4
         with:
           name: Daybreak-${{ env.VERSION }}
-          path: .build/dist/*.zip
+          path: .build/dist/Daybreak-${{ env.VERSION }}.zip
+          include-hidden-files: true
           if-no-files-found: error
-      - name: Publish GitHub release
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" .build/dist/*.zip --title "Daybreak $VERSION" --generate-notes
       - name: Delete temporary keychain
         if: always()
         run: |
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+  publish:
+    if: github.ref_type == 'tag'
+    needs: mac-app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.mac-app.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Daybreak-${{ env.VERSION }}
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "Daybreak-$VERSION.zip" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Daybreak $VERSION" --generate-notes

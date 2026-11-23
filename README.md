@@ -160,6 +160,8 @@ DAYBREAK_NATIVE_SMOKE=1 swift test --package-path app --filter NativeLifecycleSm
 
 Tests cover safety failures, backend commands, DST, idempotency, locking and configuration. The opt-in macOS smoke test verifies real AppKit quit/relaunch/PID replacement using an app created for the test; it does not update your installed apps.
 
-## CI coverage
+## CI and releases
 
-Pull requests and pushes to main run Swift tests, build the universal app and CLI, verify the app signature, and smoke-test the bundled CLI on one macOS runner. Changes to code, build inputs, examples, or workflows trigger the checks. Documentation-only changes skip CI. Use Actions → Test → Run workflow to verify any ref manually.
+The Release workflow runs Swift tests, builds the universal app and CLI, verifies the bundle, smoke-tests the bundled CLI, and uploads the release ZIP. Pull requests and pushes to main trigger an ad-hoc signed build when code, build inputs, examples, or workflows change. Use Actions → Release → Run workflow to build manually.
+
+Push a tag matching the root `VERSION` file (for example, `v0.1.0`) to build with Developer ID signing, notarize the app, and publish the verified ZIP to GitHub Releases.
