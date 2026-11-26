@@ -1,6 +1,6 @@
 #!/bin/sh
-# Builds .build/Daybreak.app (universal arm64 + x86_64) with the native CLI
-# bundled, signs it with the hardened runtime, and writes .build/dist/Daybreak-<version>.zip.
+# Builds .build/Evergreen.app (universal arm64 + x86_64) with the native CLI
+# bundled, signs it with the hardened runtime, and writes .build/dist/Evergreen-<version>.zip.
 # It never installs, launches, schedules or updates anything.
 #
 # Environment:
@@ -13,14 +13,14 @@
 set -eu
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
-APP="$ROOT/.build/Daybreak.app"
+APP="$ROOT/.build/Evergreen.app"
 DIST="$ROOT/.build/dist"
 ARCHS="${ARCHS:-arm64 x86_64}"
 IDENTITY="${CODESIGN_IDENTITY:--}"
 MIN_MACOS=14.0
 MACOS_SDK="$(xcrun --sdk macosx --show-sdk-version)"
 if [ "${MACOS_SDK%%.*}" -lt 26 ]; then
-    printf 'error: Daybreak.app requires the macOS 26 SDK or newer (found %s)\n' "$MACOS_SDK" >&2
+    printf 'error: Evergreen.app requires the macOS 26 SDK or newer (found %s)\n' "$MACOS_SDK" >&2
     exit 1
 fi
 
@@ -37,24 +37,25 @@ if [ "$XCODE_MAJOR" -lt 27 ]; then
 else
     set -- "$@" -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$MACOS_SDK"
 fi
-(cd app && swift build -c release --product DaybreakApp "$@" &&
-    swift build -c release --product daybreak "$@" &&
-    swift build -c release --product daybreak-store-installer "$@")
+(cd app && swift build -c release --product EvergreenApp "$@" &&
+    swift build -c release --product evergreen "$@" &&
+    swift build -c release --product evergreen-store-installer "$@")
 BIN_DIR="$(cd app && swift build -c release "$@" --show-bin-path)"
 
-if ! xcrun vtool -show-build "$BIN_DIR/DaybreakApp" | awk '
+if ! xcrun vtool -show-build "$BIN_DIR/EvergreenApp" | awk '
     $1 == "sdk" { count++; split($2, version, "."); if (version[1] < 26) outdated = 1 }
     END { exit (!count || outdated) }
 '; then
-    printf 'error: Daybreak.app was not linked for Liquid Glass (macOS SDK 26+)\n' >&2
+    printf 'error: Evergreen.app was not linked for Liquid Glass (macOS SDK 26+)\n' >&2
     exit 1
 fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
-cp "$BIN_DIR/DaybreakApp" "$APP/Contents/MacOS/Daybreak"
-cp "$BIN_DIR/daybreak" "$APP/Contents/Helpers/daybreak"
-cp "$BIN_DIR/daybreak-store-installer" "$APP/Contents/Helpers/daybreak-store-installer"
+cp "$BIN_DIR/EvergreenApp" "$APP/Contents/MacOS/Evergreen"
+cp "$BIN_DIR/evergreen" "$APP/Contents/Helpers/evergreen"
+ln -s evergreen "$APP/Contents/Helpers/daybreak"
+cp "$BIN_DIR/evergreen-store-installer" "$APP/Contents/Helpers/evergreen-store-installer"
 cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
     "$APP/Contents/Helpers" "$APP/Contents/Resources"
@@ -65,12 +66,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
-    <key>CFBundleDisplayName</key><string>Daybreak</string>
-    <key>CFBundleExecutable</key><string>Daybreak</string>
+    <key>CFBundleDisplayName</key><string>Evergreen</string>
+    <key>CFBundleExecutable</key><string>Evergreen</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>co.kwon.daybreak</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-    <key>CFBundleName</key><string>Daybreak</string>
+    <key>CFBundleName</key><string>Evergreen</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
@@ -94,17 +95,17 @@ if [ "$IDENTITY" = "-" ]; then
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
-codesign "$@" --identifier co.kwon.daybreak.cli "$APP/Contents/Helpers/daybreak"
-codesign "$@" --identifier co.kwon.daybreak.store-installer "$APP/Contents/Helpers/daybreak-store-installer"
+codesign "$@" --identifier co.kwon.daybreak.cli "$APP/Contents/Helpers/evergreen"
+codesign "$@" --identifier co.kwon.daybreak.store-installer "$APP/Contents/Helpers/evergreen-store-installer"
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
-for binary in "$APP/Contents/MacOS/Daybreak" "$APP/Contents/Helpers/daybreak" "$APP/Contents/Helpers/daybreak-store-installer"; do
+for binary in "$APP/Contents/MacOS/Evergreen" "$APP/Contents/Helpers/evergreen" "$APP/Contents/Helpers/evergreen-store-installer"; do
     printf '%s: %s\n' "$(basename "$binary")" "$(lipo -archs "$binary")"
 done
 
 mkdir -p "$DIST"
-ZIP="$DIST/Daybreak-$VERSION.zip"
+ZIP="$DIST/Evergreen-$VERSION.zip"
 rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 

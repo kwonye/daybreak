@@ -1,5 +1,5 @@
-[plugins."daybreak-macos-qa@daybreak"]
+[plugins."evergreen-macos-qa@evergreen"]
 enabled = true
 
-[plugins."daybreak-maintenance@daybreak"]
+[plugins."evergreen-maintenance@evergreen"]
 enabled = true

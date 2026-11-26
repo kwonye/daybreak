@@ -69,7 +69,7 @@ jobs:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          keychain="$RUNNER_TEMP/daybreak-signing.keychain-db"
+          keychain="$RUNNER_TEMP/evergreen-signing.keychain-db"
           keychain_password=$(openssl rand -hex 24)
           cert="$RUNNER_TEMP/certificate.p12"
           printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$cert"
@@ -94,26 +94,26 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcrun notarytool store-credentials daybreak-notary \
+          xcrun notarytool store-credentials evergreen-notary \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
-          echo "NOTARY_PROFILE=daybreak-notary" >> "$GITHUB_ENV"
+          echo "NOTARY_PROFILE=evergreen-notary" >> "$GITHUB_ENV"
       - name: Build release ZIP
         run: ./scripts/build-app.sh
       - name: Verify release bundle and CLI
         run: |
-          codesign --verify --deep --strict --verbose=2 .build/Daybreak.app
-          env -i PATH=/usr/bin:/bin .build/Daybreak.app/Contents/Helpers/daybreak status --config "$RUNNER_TEMP/daybreak-config.json" --state-dir "$RUNNER_TEMP/daybreak-state"
-          unzip -t ".build/dist/Daybreak-$VERSION.zip"
+          codesign --verify --deep --strict --verbose=2 .build/Evergreen.app
+          env -i PATH=/usr/bin:/bin .build/Evergreen.app/Contents/Helpers/evergreen status --config "$RUNNER_TEMP/evergreen-config.json" --state-dir "$RUNNER_TEMP/evergreen-state"
+          unzip -t ".build/dist/Evergreen-$VERSION.zip"
       - name: Verify notarization
         if: github.ref_type == 'tag'
         run: |
-          xcrun stapler validate .build/Daybreak.app
-          spctl --assess --type execute --verbose .build/Daybreak.app
+          xcrun stapler validate .build/Evergreen.app
+          spctl --assess --type execute --verbose .build/Evergreen.app
       - uses: actions/upload-artifact@v4
         with:
-          name: Daybreak-${{ env.VERSION }}
-          path: .build/dist/Daybreak-${{ env.VERSION }}.zip
+          name: Evergreen-${{ env.VERSION }}
+          path: .build/dist/Evergreen-${{ env.VERSION }}.zip
           include-hidden-files: true
           if-no-files-found: error
       - name: Delete temporary keychain
@@ -131,8 +131,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Daybreak-${{ env.VERSION }}
+          name: Evergreen-${{ env.VERSION }}
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Daybreak-$VERSION.zip" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Daybreak $VERSION" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" "Evergreen-$VERSION.zip" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Evergreen $VERSION" --generate-notes

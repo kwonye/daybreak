@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "evergreen-macos-qa",
+  "version": "1.0.0",
+  "description": "Verify Evergreen’s native windows, menu bar, onboarding, and settings.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Evergreen macOS QA"
+      }
+    }
+  }
+}

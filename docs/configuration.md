@@ -34,7 +34,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
 
 ## Whitelist
 
-`whitelist` is a list of apps Daybreak always skips: never checked, updated, quit or relaunched, and never probed for a backend (preview or update). Each entry is an exact bundle ID or a case-sensitive shell-style glob (`fnmatch`), e.g. `com.jetbrains.*`. Matching apps report status `excluded` with detail `Whitelisted by configuration`. Entries must be non-empty strings.
+`whitelist` is a list of apps Evergreen always skips: never checked, updated, quit or relaunched, and never probed for a backend (preview or update). Each entry is an exact bundle ID or a case-sensitive shell-style glob (`fnmatch`), e.g. `com.jetbrains.*`. Matching apps report status `excluded` with detail `Whitelisted by configuration`. Entries must be non-empty strings.
 
 `exclude` is a legacy alias and still works; the effective skip list is the union of `whitelist` and `exclude`. The whitelist can only add skips: built-in protected apps keep their protection.
 
@@ -42,7 +42,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
 
 Only set Docker's flag true after accepting container/VM/Kubernetes interruption. No Docker restart occurs otherwise, even through restart-only fallback.
 
-Sparkle CLI is optional and not installed by Daybreak. Build it from the official Sparkle project per its documentation using a distinct bundle identifier. Merely containing Sparkle does not mean a host's custom updater delegates/feed can be reproduced externally. Do not override feed URLs to make a host work.
+Sparkle CLI is optional and not installed by Evergreen. Build it from the official Sparkle project per its documentation using a distinct bundle identifier. Merely containing Sparkle does not mean a host's custom updater delegates/feed can be reproduced externally. Do not override feed URLs to make a host work.
 
 Chrome auto-discovers the existing user updater under `~/Library/Application Support/Google/GoogleUpdater/Current/`. Only one helper is selected; product and existence-checker path must match. You may configure an absolute `executable` for a supported user-scope helper; the corresponding updater must already exist. Do not point this at a system-scope helper.
 
@@ -58,7 +58,7 @@ The due gate uses the configured wall-clock `hour`, `minute`, and `timezone`. `s
 
 The Updates pane checks the public App Store catalog directly. It shows the newest version the catalog can identify for the installed Mac app. What the App Store offers can also depend on the signed-in account and rollout.
 
-`direct_app_store_updates` is off by default. It enables individually confirmed updates in the Updates pane for eligible signed copies in `/Applications`. It does not change Preview or scheduled runs. Daybreak uses the system's private commerce interfaces for downloads. If local installation is required, macOS can authorize a one-shot helper that verifies the replacement and its App Store receipt before installing it. Use the App Store for macOS versions or packages that the direct path cannot handle.
+`direct_app_store_updates` is off by default. It enables individually confirmed updates in the Updates pane for eligible signed copies in `/Applications`. It does not change Preview or scheduled runs. Evergreen uses the system's private commerce interfaces for downloads. If local installation is required, macOS can authorize a one-shot helper that verifies the replacement and its App Store receipt before installing it. Use the App Store for macOS versions or packages that the direct path cannot handle.
 
 ## Supported command adapter
 
@@ -81,6 +81,6 @@ For an app that has its own documented update CLI:
 - `apply` runs with the application already gracefully closed and must synchronously complete installation. Exit nonzero on failure. It must not return while an installer continues asynchronously.
 - Only literal `{app_path}` and `{bundle_id}` substitution occurs. There is no shell, eval, remote script loading, or environment-secret expansion.
 - Adapters are trusted local code and can do what their executables can do. Review them; do not accept adapter configuration from feeds or untrusted documents.
-- Preserve the signing team and bundle ID. New permissions, new terms, account login, major upgrades and privileged installers need their own handling. Daybreak does not automatically approve them.
+- Preserve the signing team and bundle ID. New permissions, new terms, account login, major upgrades and privileged installers need their own handling. Evergreen does not automatically approve them.
 
 App-specific updaters that require the host to remain running do not fit this command adapter. Implement a reviewed backend with explicit lifecycle semantics instead.

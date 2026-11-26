@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+# Preserve the checkout working directory used by existing jobs and relative config paths.
+cd "$(dirname "$0")/.."
+checkout="$PWD/.build/evergreen"
+bundled="$PWD/.build/Evergreen.app/Contents/Helpers/evergreen"
+if [ -x "$bundled" ] && { [ ! -x "$checkout" ] || [ "$bundled" -nt "$checkout" ]; }; then
+    exec "$bundled" "$@"
+fi
+if [ ! -x "$checkout" ]; then
+    ./scripts/build.sh >&2
+fi
+exec "$checkout" "$@"

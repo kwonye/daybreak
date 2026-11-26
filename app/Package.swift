@@ -2,22 +2,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "Daybreak",
+    name: "Evergreen",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "DaybreakApp", targets: ["DaybreakApp"]),
-        .executable(name: "daybreak", targets: ["DaybreakCLI"]),
-        .executable(name: "daybreak-store-installer", targets: ["DaybreakStoreInstaller"]),
+        .executable(name: "EvergreenApp", targets: ["EvergreenApp"]),
+        .executable(name: "evergreen", targets: ["EvergreenCLI"]),
+        .executable(name: "evergreen-store-installer", targets: ["EvergreenStoreInstaller"]),
     ],
     targets: [
         // Native engine and shared config and report models.
-        .target(name: "DaybreakStoreBridge", cSettings: [.unsafeFlags(["-fobjc-arc"])],
+        .target(name: "EvergreenStoreBridge", cSettings: [.unsafeFlags(["-fobjc-arc"])],
                 linkerSettings: [.linkedFramework("Security")]),
-        .target(name: "DaybreakKit", dependencies: ["DaybreakStoreBridge"]),
-        .executableTarget(name: "DaybreakCLI", dependencies: ["DaybreakKit"]),
-        .executableTarget(name: "DaybreakApp", dependencies: ["DaybreakKit"]),
-        .executableTarget(name: "DaybreakStoreInstaller", dependencies: ["DaybreakKit"]),
-        .testTarget(name: "DaybreakKitTests", dependencies: ["DaybreakKit"]),
+        .target(name: "EvergreenKit", dependencies: ["EvergreenStoreBridge"]),
+        .executableTarget(name: "EvergreenCLI", dependencies: ["EvergreenKit"]),
+        .executableTarget(name: "EvergreenApp", dependencies: ["EvergreenKit"]),
+        .executableTarget(name: "EvergreenStoreInstaller", dependencies: ["EvergreenKit"]),
+        .testTarget(name: "EvergreenKitTests", dependencies: ["EvergreenKit"]),
     ],
     swiftLanguageModes: [.v6]
 )

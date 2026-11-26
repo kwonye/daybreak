@@ -1,12 +1,12 @@
 # Architecture
 
-The SwiftUI app and bundled CLI both use the native engine in `DaybreakKit`.
+The SwiftUI app and bundled CLI both use the native engine in `EvergreenKit`.
 
 - `MacApplications.swift` uses AppKit to enumerate processes and request normal termination. It also reads bundle metadata, verifies developer signatures, and checks that a fresh primary process launched.
 - `UpdateBackends.swift` selects a supported updater and runs scoped commands. Optional adapters still require their own vendor tools.
 - `UpdateCoordinator.swift` performs each check, installation, relaunch and verification, and isolates failures per app.
 - `EngineConfiguration.swift` validates the existing JSON configuration. `NativeState.swift` preserves the existing report files, atomic writes, overlap lock and timezone-aware daily gate.
-- `NativeEngine.swift` runs the engine and exposes the CLI contract. The GUI calls the same engine in a Swift actor and the CLI is packaged at `Daybreak.app/Contents/Helpers/daybreak`.
+- `NativeEngine.swift` runs the engine and exposes the CLI contract. The GUI calls the same engine in a Swift actor and the CLI is packaged at `Evergreen.app/Contents/Helpers/evergreen`.
 
 ## Boundaries
 

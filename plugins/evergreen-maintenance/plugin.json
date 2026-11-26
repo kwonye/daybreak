@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "evergreen-maintenance",
+  "version": "1.0.0",
+  "description": "Verify Evergreen’s update engine, bundled CLI, and macOS release artifacts.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Evergreen Maintenance"
+      }
+    }
+  }
+}

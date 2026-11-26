@@ -1,21 +1,23 @@
-# Daybreak
+# Evergreen
+
+<img src="docs/assets/evergreen.png" width="104" height="104" alt="">
 
 A local macOS update coordinator for the apps that are running when the daily job starts. It checks supported updaters, applies updates, gracefully closes/reopens apps when needed, and verifies that fresh processes launched from the installed bundles.
 
-[Daybreak website](https://kwonye.github.io/daybreak/)
+[Evergreen website](https://kwonye.github.io/evergreen/)
 
-## Set up Daybreak
+## Set up Evergreen
 
-Guided setup opens on first launch and is available again under **Settings → General → Set Up Daybreak**. Choose which updates and restarts to allow, a time and cadence, whether Daybreak starts at login, and how it appears in the menu bar and Dock.
+Guided setup opens on first launch and is available again under **Settings → General → Set Up Evergreen**. Choose which updates and restarts to allow, a time and cadence, whether Evergreen starts at login, and how it appears in the menu bar and Dock.
 
-Automatic runs stay off until enabled. When enabled, Daybreak checks the schedule while it’s running, including with its window closed if the menu bar item is active. It does not wake your Mac or replay missed days. If you already use an external job, you can keep that as your trigger.
+Automatic runs stay off until enabled. When enabled, Evergreen checks the schedule while it’s running, including with its window closed if the menu bar item is active. It does not wake your Mac or replay missed days. If you already use an external job, you can keep that as your trigger.
 
 ## Check for updates in the app
 
-Open **Updates** in Daybreak to check automatically if the last check was at least an hour ago. Use **Check for Updates** in the pane or the menu bar for an immediate check. Daybreak finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
+Open **Updates** in Evergreen to check automatically if the last check was at least an hour ago. Use **Check for Updates** in the pane or the menu bar for an immediate check. Evergreen finds apps in Applications and your home Applications folder, as well as other apps currently running. It checks availability without installing or restarting anything. The list shows the result and the next action for each app.
 
-- Daybreak can install compatible Sparkle and Homebrew updates, request a scoped update from Chrome, and install updates offered for apps registered with Microsoft AutoUpdate. The packaged app includes the official Sparkle helper. Docker's native update action is available when its workload interruption setting is enabled.
-- Daybreak lists available macOS updates and opens System Settings to install them. In **Mac App Store**, Daybreak checks Apple's public listing without an extra tool. Enable **Settings → Updates → Install Mac App Store updates in Daybreak** to install eligible updates for App Store apps in `/Applications` from Daybreak. The App Store controls account eligibility, and macOS may ask for administrator approval. If the current OS or app layout does not support direct installation, use **Open Updater**.
+- Evergreen can install compatible Sparkle and Homebrew updates, request a scoped update from Chrome, and install updates offered for apps registered with Microsoft AutoUpdate. The packaged app includes the official Sparkle helper. Docker's native update action is available when its workload interruption setting is enabled.
+- Evergreen lists available macOS updates and opens System Settings to install them. In **Mac App Store**, Evergreen checks Apple's public listing without an extra tool. Enable **Settings → Updates → Install Mac App Store updates in Evergreen** to install eligible updates for App Store apps in `/Applications` from Evergreen. The App Store controls account eligibility, and macOS may ask for administrator approval. If the current OS or app layout does not support direct installation, use **Open Updater**.
 - For apps that manage their own updates, **Open App** takes you to the installed copy.
 
 Choose **Update All** to install eligible updates one at a time after a single confirmation. Interactive installations respect the whitelist and appear in History. Scheduled runs and the CLI remain available for the running-app workflow.
@@ -24,12 +26,12 @@ Choose **Update All** to install eligible updates one at a time after a single c
 
 ## Quick start
 
-Requires macOS 14 or later. The Swift engine ships inside Daybreak.app and its bundled CLI. To build from the checkout, use Xcode 26 or newer.
+Requires macOS 14 or later. The Swift engine ships inside Evergreen.app and its bundled CLI. To build from the checkout, use Xcode 26 or newer.
 
 ```sh
 ./scripts/build.sh
-./scripts/daybreak inventory
-./scripts/daybreak run
+./scripts/evergreen inventory
+./scripts/evergreen run
 ```
 
 Preview reads app/process metadata and local installed-cask metadata. It **does not** invoke an updater, make network requests, quit/relaunch apps, or write run state. If the environment cannot enumerate running apps, it fails instead of reporting an empty successful run.
@@ -37,15 +39,15 @@ Preview reads app/process metadata and local installed-cask metadata. It **does 
 To configure, copy `examples/config.example.json` outside the repository, edit it, then preview again:
 
 ```sh
-mkdir -p "$HOME/.config/daybreak"
-cp examples/config.example.json "$HOME/.config/daybreak/config.json"
-./scripts/daybreak run --config "$HOME/.config/daybreak/config.json"
+mkdir -p "$HOME/.config/evergreen"
+cp examples/config.example.json "$HOME/.config/evergreen/config.json"
+./scripts/evergreen run --config "$HOME/.config/evergreen/config.json"
 ```
 
 To actually interrupt and update the running apps:
 
 ```sh
-./scripts/daybreak run --apply --config "$HOME/.config/daybreak/config.json"
+./scripts/evergreen run --apply --config "$HOME/.config/evergreen/config.json"
 ```
 
 Use `--only com.google.Chrome` (repeatable) to limit a run. Do not run as root. The process must run in the logged-in user's GUI session and have permission to enumerate/terminate apps. It does not request Accessibility access or change macOS permissions. Restricted execution environments may need their supported approval mechanism; do not work around access denials.
@@ -61,9 +63,9 @@ Use `--only com.google.Chrome` (repeatable) to limit a run. Do not run as root. 
 | Docker Desktop | Native `docker desktop update --quiet`, fresh-process check, then engine health check | Explicit `allow_workload_interruption: true`. Containers, Kubernetes and VM workloads can stop. Docker's command has no stable machine-readable availability response |
 | Electron / Squirrel / unknown | Graceful restart to apply a vendor-staged update | No generic external update API. Latest-release availability is unknown unless a supported command adapter is configured |
 
-Daybreak leaves apps without supported updaters running by default. Enable Restart apps without a supported updater in Settings → Updates to restart those apps and let them apply any update they already downloaded. Apps reported current are still gracefully restarted unless you disable that separately.
+Evergreen leaves apps without supported updaters running by default. Enable Restart apps without a supported updater in Settings → Updates to restart those apps and let them apply any update they already downloaded. Apps reported current are still gracefully restarted unless you disable that separately.
 
-Daybreak skips itself, macOS system apps, bundled helpers, system extensions, and dedicated updater services. Protected apps are hidden by default in the app. User exclusions are additive. No cloud automation or LaunchAgent is created or modified by this repository.
+Evergreen skips itself, macOS system apps, bundled helpers, system extensions, and dedicated updater services. Protected apps are hidden by default in the app. User exclusions are additive. No cloud automation or LaunchAgent is created or modified by this repository.
 
 ## Safety and honest verification
 
@@ -75,23 +77,25 @@ Daybreak skips itself, macOS system apps, bundled helpers, system extensions, an
 - Success requires a fresh primary PID/start time, verified executable path, current bundle version and fingerprint. New auxiliary processes sharing the bundle ID are not mistaken for the main executable, but any original PID still present blocks verification. Command success alone is not enough. This verifies **“relaunched installed version”**, not a direct measurement of arbitrary in-memory application versions, nor proof that no newer release exists.
 - Isolates each app's failure, runs sequentially, locks overlapping jobs, writes private JSON reports, and suppresses arbitrary updater stdout/stderr from reports to reduce accidental sensitive logging.
 
-When a vendor omits `CFBundleExecutable`, Daybreak uses only a unique executable observed by macOS inside that bundle’s `Contents/MacOS` directory. It does not guess from directory contents, accept escaping symlinks, or silently switch to a helper after updating.
+When a vendor omits `CFBundleExecutable`, Evergreen uses only a unique executable observed by macOS inside that bundle’s `Contents/MacOS` directory. It does not guess from directory contents, accept escaping symlinks, or silently switch to a helper after updating.
 
-Sparkle exit 4 during installation means no update is available at that point. Daybreak still verifies the signature and relaunch, reports `checked_and_relaunched`, and does not claim an upgrade.
+Sparkle exit 4 during installation means no update is available at that point. Evergreen still verifies the signature and relaunch, reports `checked_and_relaunched`, and does not claim an upgrade.
 
-The current process may already be older than its bundle on disk. Daybreak compares mapped executable inode with current disk inode when `lsof` can establish that fact. Lack of that signal is not proof of freshness; the default fresh-process relaunch handles that case.
+The current process may already be older than its bundle on disk. Evergreen compares mapped executable inode with current disk inode when `lsof` can establish that fact. Lack of that signal is not proof of freshness; the default fresh-process relaunch handles that case.
 
 ## Daily 08:00 Pacific integration
 
-If you use an external job, have it invoke Daybreak on the Mac:
+If you use an external job, have it invoke Evergreen on the Mac:
 
 ```sh
-cd "$HOME/Developer/github/kwonye/daybreak"
-./scripts/daybreak run --apply --due \
-  --config "$HOME/.config/daybreak/config.json"
+cd "$HOME/Developer/github/kwonye/evergreen"
+./scripts/evergreen run --apply --due \
+  --config "$HOME/.config/evergreen/config.json"
 ```
 
-For a job that runs from an installed app, invoke `/Applications/Daybreak.app/Contents/Helpers/daybreak` with the same arguments. Keep the same config and state directory when switching commands.
+For a job that runs from an installed app, invoke `/Applications/Evergreen.app/Contents/Helpers/evergreen` with the same arguments. Keep the same config and state directory when switching commands.
+
+If you upgraded from Daybreak, Evergreen uses your existing `~/.config/daybreak/config.json` and `~/Library/Application Support/Daybreak/` when their Evergreen counterparts are absent. The `scripts/daybreak` command and the bundled `daybreak` helper still work. Update any absolute app paths in your jobs if you rename the installed bundle to `Evergreen.app`.
 
 The gate uses `America/Los_Angeles`, so DST follows Pacific wall time. By default it allows one run per local calendar date at or after 08:00. Settings can change the time and restrict eligible dates to weekdays or one day a week. A late same-day invocation catches up; it does not wake a sleeping Mac, run while logged out, or replay missed days. External jobs and automatic in-app runs share the gate when they use the same state folder.
 
@@ -102,10 +106,10 @@ No real update or daily schedule installation is performed by building/testing t
 ## Reports and exit codes
 
 ```sh
-./scripts/daybreak status
+./scripts/evergreen status
 ```
 
-Default private state: `~/Library/Application Support/Daybreak/`.
+Default private state: `~/Library/Application Support/Evergreen/`.
 
 - `latest.json`: last actual run, including before/after versions and builds, primary PIDs, and updater outcome
 - `runs/*.json`: last 30 runs
@@ -121,21 +125,21 @@ Exit 0 means no attention state was reported (not “everything is latest”). E
 `app/` is an optional native SwiftUI front end. Build it with Xcode 26 or newer. It runs on macOS 14 and later, with native Liquid Glass controls on macOS 26 and later. The GUI and bundled CLI share the same Swift engine, config, and report formats.
 
 ```sh
-./scripts/build-app.sh          # .build/Daybreak.app (universal, hardened runtime) + .build/dist/Daybreak-<version>.zip
-open .build/Daybreak.app
-cd app && swift run DaybreakApp # development
+./scripts/build-app.sh          # .build/Evergreen.app (universal, hardened runtime) + .build/dist/Evergreen-<version>.zip
+open .build/Evergreen.app
+cd app && swift run EvergreenApp # development
 cd app && swift test            # unit tests; DAYBREAK_INTEGRATION=1 adds read-only engine checks
 ```
 
-Use the packaged `Daybreak.app` to verify Liquid Glass. The bundle build explicitly records the current macOS SDK in the executable so macOS enables the new appearance.
+Use the packaged `Evergreen.app` to verify Liquid Glass. The bundle build explicitly records the current macOS SDK in the executable so macOS enables the new appearance.
 
-- **Running Apps** lists `inventory` with protected/whitelisted badges and a per-app whitelist checkbox (protected apps can be hidden). Daybreak never includes itself in an update run.
-- **Whitelist** edits `whitelist` in `~/.config/daybreak/config.json`: exact bundle IDs or case-sensitive globs such as `com.jetbrains.*`, added from running apps, from an app in `/Applications`, or by hand (⌘N). Legacy `exclude` entries are shown and can be removed. Delete removes the selection; ⌘Z undoes. Whitelisted apps are never quit, updated or relaunched.
+- **Running Apps** lists `inventory` with protected/whitelisted badges and a per-app whitelist checkbox (protected apps can be hidden). Evergreen never includes itself in an update run.
+- **Whitelist** edits `whitelist` in `~/.config/evergreen/config.json`: exact bundle IDs or case-sensitive globs such as `com.jetbrains.*`, added from running apps, from an app in `/Applications`, or by hand (⌘N). Legacy `exclude` entries are shown and can be removed. Delete removes the selection; ⌘Z undoes. Whitelisted apps are never quit, updated or relaunched.
 - **History** shows `status` and `runs/*.json` read-only. ⌘R refreshes the current pane.
 - **Settings › Updates** edits `hour`, `timezone` (searchable picker), `quit_timeout_seconds`, `restart_current` and `restart_unmanaged`. Every other key in the config file (`apps`, `sparkle_cli`, …) is preserved, and a file that does not parse is never overwritten.
-- **Settings › General** sets the local state folder (default `~/Library/Application Support/Daybreak`). Start Daybreak at login and choose whether to show its menu bar item and Dock icon here. The menu bar popover offers Check for Updates, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
+- **Settings › General** sets the local state folder (default `~/Library/Application Support/Evergreen`). Start Evergreen at login and choose whether to show its menu bar item and Dock icon here. The menu bar popover offers Check for Updates, History, and Settings. Use the same state folder as a scheduled job's `--state-dir`.
 
-The app’s optional schedule runs inside Daybreak and creates no LaunchAgents.
+The app’s optional schedule runs inside Evergreen and creates no LaunchAgents.
 
 **Release builds.** The version comes from the root VERSION file. `scripts/build-app.sh` builds arm64 and x86_64 slices of the app and its native CLI, signs the bundled helpers and then the app with the hardened runtime for Developer ID builds, and zips the result into `.build/dist/`:
 

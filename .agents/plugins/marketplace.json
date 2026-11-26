@@ -1,14 +1,14 @@
 {
-  "name": "daybreak",
+  "name": "evergreen",
   "interface": {
-    "displayName": "Daybreak"
+    "displayName": "Evergreen"
   },
   "plugins": [
     {
-      "name": "daybreak-macos-qa",
+      "name": "evergreen-macos-qa",
       "source": {
         "source": "local",
-        "path": "./plugins/daybreak-macos-qa"
+        "path": "./plugins/evergreen-macos-qa"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -17,10 +17,10 @@
       "category": "Development"
     },
     {
-      "name": "daybreak-maintenance",
+      "name": "evergreen-maintenance",
       "source": {
         "source": "local",
-        "path": "./plugins/daybreak-maintenance"
+        "path": "./plugins/evergreen-maintenance"
       },
       "policy": {
         "installation": "AVAILABLE",

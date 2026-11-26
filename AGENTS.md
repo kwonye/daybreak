@@ -1,13 +1,13 @@
-# Daybreak contributor guide
+# Evergreen contributor guide
 
-Daybreak is a native macOS SwiftUI app with a bundled Swift CLI. Both use the same engine in `DaybreakKit`. Build from the repository root on macOS with Xcode and the macOS 26 SDK or newer. Keep the macOS 14 deployment target and use availability checks for newer UI APIs.
+Evergreen is a native macOS SwiftUI app with a bundled Swift CLI. Both use the same engine in `EvergreenKit`. Build from the repository root on macOS with Xcode and the macOS 26 SDK or newer. Keep the macOS 14 deployment target and use availability checks for newer UI APIs.
 
 ## Where to work
 
-- `app/Sources/DaybreakApp` owns the SwiftUI panes, AppKit window and menu bar integration, onboarding, settings, and scheduling.
-- `app/Sources/DaybreakKit` owns application discovery, updater selection and verification, configuration, and local state. `DaybreakCLI` exposes the engine for automation.
-- `DaybreakStoreBridge` and `DaybreakStoreInstaller` are the macOS App Store bridge and narrowly scoped installer. Preserve the opt-in and macOS authorization for direct App Store installs.
-- `app/Tests/DaybreakKitTests` contains engine and platform tests. See [configuration](docs/configuration.md) for the JSON contract and [.github/workflows](.github/workflows) for the current CI and release commands.
+- `app/Sources/EvergreenApp` owns the SwiftUI panes, AppKit window and menu bar integration, onboarding, settings, and scheduling.
+- `app/Sources/EvergreenKit` owns application discovery, updater selection and verification, configuration, and local state. `EvergreenCLI` exposes the engine for automation.
+- `EvergreenStoreBridge` and `EvergreenStoreInstaller` are the macOS App Store bridge and narrowly scoped installer. Preserve the opt-in and macOS authorization for direct App Store installs.
+- `app/Tests/EvergreenKitTests` contains engine and platform tests. See [configuration](docs/configuration.md) for the JSON contract and [.github/workflows](.github/workflows) for the current CI and release commands.
 
 ## Develop and verify
 
@@ -18,9 +18,9 @@ Daybreak is a native macOS SwiftUI app with a bundled Swift CLI. Both use the sa
 
 ## Repo plugins
 
-The [Daybreak marketplace](.agents/plugins/marketplace.json) and [project config](.codex/config.toml) expose these skills in Codex for trusted checkouts.
+The [Evergreen marketplace](.agents/plugins/marketplace.json) and [project config](.codex/config.toml) expose these skills in Codex for trusted checkouts.
 
 | Plugin | Skills |
 | --- | --- |
-| Daybreak macOS QA | [Verify Daybreak UI](plugins/daybreak-macos-qa/skills/verify-daybreak-ui/SKILL.md) |
-| Daybreak Maintenance | [Verify Daybreak updaters](plugins/daybreak-maintenance/skills/verify-daybreak-updaters/SKILL.md), [Package Daybreak](plugins/daybreak-maintenance/skills/package-daybreak/SKILL.md) |
+| Evergreen macOS QA | [Verify Evergreen UI](plugins/evergreen-macos-qa/skills/verify-evergreen-ui/SKILL.md) |
+| Evergreen Maintenance | [Verify Evergreen updaters](plugins/evergreen-maintenance/skills/verify-evergreen-updaters/SKILL.md), [Package Evergreen](plugins/evergreen-maintenance/skills/package-evergreen/SKILL.md) |
