@@ -23,6 +23,7 @@ expect() {
 }
 
 expect 0.1.0
+test "$(EVERGREEN_BUILD_VERSION=9.9.9 sh scripts/release-version)" = 0.1.0
 git tag v0.1.0
 expect ""
 git commit --quiet --allow-empty -m "fix: handle an update"

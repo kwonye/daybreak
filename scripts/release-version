@@ -8,7 +8,7 @@ tags="$(git tag --list 'v*' --sort=-version:refname)"
 previous="$(printf '%s\n' "$tags" | awk -v pattern="$stable" '$0 ~ pattern { print; exit }')"
 
 if [ -z "$previous" ]; then
-    initial="$(./scripts/version)"
+    initial="$(unset EVERGREEN_BUILD_VERSION; ./scripts/version)"
     if ! printf 'v%s\n' "$initial" | grep -Eq "$stable"; then
         printf 'error: the first release requires a MAJOR.MINOR.PATCH version in VERSION\n' >&2
         exit 1
