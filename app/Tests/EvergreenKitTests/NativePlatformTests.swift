@@ -1,9 +1,26 @@
+import Darwin
 import Foundation
 import os
 import Testing
 @testable import EvergreenKit
 
 @Suite struct NativePlatformTests {
+    @Test func appIdentityResolvesAliasesAndKeepsSeparateCopies() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = directory.appendingPathComponent("Original.app")
+        let copy = directory.appendingPathComponent("Copy.app")
+        let alias = directory.appendingPathComponent("Alias.app")
+        let files = FileManager.default
+        try files.createDirectory(at: original, withIntermediateDirectories: true)
+        try files.createDirectory(at: copy, withIntermediateDirectories: false)
+        try files.createSymbolicLink(at: alias, withDestinationURL: original)
+        let id = "com.example.app"
+        #expect(ApplicationIdentity(bundleID: id, path: alias.path) == ApplicationIdentity(bundleID: id, path: original.path))
+        #expect(ApplicationIdentity(bundleID: id, path: copy.path) != ApplicationIdentity(bundleID: id, path: original.path))
+        #expect(ApplicationIdentity(bundleID: "com.example.setup", path: original.path) != ApplicationIdentity(bundleID: id, path: original.path))
+    }
+
     @Test func signedClosedAppCanResolveMainExecutableWithoutPlistKey() throws {
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -24,6 +41,69 @@ import Testing
         #expect(metadata.executable == canonicalPath(main.path))
         #expect(metadata.executableSource == "code-signature")
         #expect(metadata.fingerprint.count == 64)
+    }
+
+    @Test func finderFolderPositionsDoNotMaskInvalidSignatures() throws {
+        let directory = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = directory.appendingPathComponent("FinderFixture.app")
+        let executable = root.appendingPathComponent("Contents/MacOS/FinderFixture")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: "/usr/bin/true", toPath: executable.path)
+        let app = sample(path: root.path)
+        let plist = root.appendingPathComponent("Contents/Info.plist")
+        try PropertyListSerialization.data(fromPropertyList: [
+            "CFBundleIdentifier": app.bundleID, "CFBundlePackageType": "APPL",
+            "CFBundleExecutable": "FinderFixture", "CFBundleVersion": "1",
+        ], format: .xml, options: 0).write(to: plist)
+
+        let system = UpdaterProcess()
+        _ = try system.checked(["/usr/bin/codesign", "--force", "--sign", "-", root.path], 20)
+        let finderInfo = "com.apple.FinderInfo"
+        var metadata = [UInt8](repeating: 0, count: 32)
+        metadata.replaceSubrange(10..<14, with: [0xFF, 0xFF, 0xFF, 0xFF])
+        let nested = executable.deletingLastPathComponent()
+        for path in [root.path, nested.path] {
+            let written = metadata.withUnsafeBytes { bytes in
+                setxattr(path, finderInfo, bytes.baseAddress, bytes.count, 0, XATTR_NOFOLLOW)
+            }
+            try #require(written == 0)
+        }
+        let runner = UpdaterProcess { arguments, timeout in
+            // The fixture is ad-hoc signed. Check its real signature, then
+            // simulate a vendor Team ID without depending on a local certificate.
+            if arguments.contains("-dv") { return processOutput(stderr: "TeamIdentifier=TESTTEAM") }
+            return try system.run(arguments, timeout)
+        }
+        let platform = MacApplications(process: runner, quitTimeout: 1)
+        #expect(try platform.signer(app) == "TESTTEAM")
+        #expect(getxattr(root.path, finderInfo, nil, 0, 0, XATTR_NOFOLLOW) == 32)
+        #expect(getxattr(nested.path, finderInfo, nil, 0, 0, XATTR_NOFOLLOW) == 32)
+        #expect(throws: EngineFailure.self) { try platform.checkSignature(app, expectedTeam: "DIFFERENT") }
+
+        try Data("tampered".utf8).write(to: plist)
+        #expect(throws: EngineFailure.self) { try platform.signer(app) }
+    }
+
+    @Test func sparkleRequestsAuthorizationOnlyForInteractiveInstalls() throws {
+        let app = sample()
+        let commands = OSAllocatedUnfairLock(initialState: [[String]]())
+        let runner = UpdaterProcess { args, _ in
+            commands.withLock { $0.append(args) }
+            return processOutput(code: args.contains("--interactive") ? 0 : 3)
+        }
+        var backend = UpdateBackend(kind: .sparkle, process: runner, executable: "/sparkle")
+        #expect(throws: EngineFailure.self) { try backend.apply(app) }
+        backend.interactiveInstallation = true
+        #expect(try backend.apply(app)?.outcome == "completed")
+        #expect(commands.withLock { $0.map { $0.contains("--interactive") } } == [false, true])
+
+        backend = UpdateBackend(kind: .sparkle, process: UpdaterProcess { _, _ in processOutput(code: 5) },
+                                executable: "/sparkle", interactiveInstallation: true)
+        #expect(throws: CancellationError.self) { try backend.apply(app) }
+        backend = UpdateBackend(kind: .sparkle, process: UpdaterProcess { _, _ in processOutput(code: 8) },
+                                executable: "/sparkle", interactiveInstallation: true)
+        #expect(throws: UpdateRequiresApp.self) { try backend.apply(app) }
     }
 
     @Test func observedExecutableMustBeUniqueAndWithinBundle() throws {
@@ -124,7 +204,7 @@ import Testing
 
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["DAYBREAK_NATIVE_SMOKE"] == "1"))
 struct NativeLifecycleSmoke {
-    @Test func onlyRestartsDisposableFixture() throws {
+    @Test func onlyRestartsDisposableFixture() async throws {
         let directory = temporaryURL()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let path = try #require(canonicalPath(directory.path))
@@ -154,14 +234,14 @@ struct NativeLifecycleSmoke {
         try mac.relaunch(candidate)
         let deadline = DispatchTime.now() + 15
         while try mac.current(candidate).isEmpty, DispatchTime.now() < deadline {
-            Thread.sleep(forTimeInterval: 0.2)
+            try await Task.sleep(for: .milliseconds(200))
         }
         let originalPIDs = try mac.current(candidate).map(\.pid)
         try #require(!originalPIDs.isEmpty)
         let state = workspace.appendingPathComponent("state")
         let config = workspace.appendingPathComponent("config.json")
         try Data(#"{"apps":{},"restart_unmanaged":true}"#.utf8).write(to: config)
-        let result = try runFixture(bundleID: bundleID, state: state, config: config, runner: runner)
+        let result = try await runFixture(bundleID: bundleID, state: state, config: config, runner: runner)
         #expect(result.status == .restartOnlyUnverified)
         #expect(result.before == "1.2.3" && result.after == "1.2.3")
         #expect(result.oldPIDs == originalPIDs)
@@ -169,7 +249,7 @@ struct NativeLifecycleSmoke {
         #expect(try mac.quit(candidate))
     }
 
-    private func runFixture(bundleID: String, state: URL, config: URL, runner: UpdaterProcess) throws -> RunResult {
+    private func runFixture(bundleID: String, state: URL, config: URL, runner: UpdaterProcess) async throws -> RunResult {
         let arguments = ["run", "--apply", "--only", bundleID, "--config", config.path, "--state-dir", state.path]
         let data: Data
         if let cli = ProcessInfo.processInfo.environment["DAYBREAK_SMOKE_CLI"] {
@@ -177,7 +257,7 @@ struct NativeLifecycleSmoke {
             #expect(output.exitCode == 2)
             data = output.stdout
         } else {
-            let output = EvergreenCommandLine.run(arguments)
+            let output = await EvergreenCommandLine.run(arguments)
             #expect(output.exitCode == 2)
             data = output.stdout
         }

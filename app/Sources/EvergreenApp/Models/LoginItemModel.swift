@@ -5,17 +5,26 @@ import ServiceManagement
 @MainActor
 @Observable
 final class LoginItemModel {
-    private let service = SMAppService.mainApp
+    private let service: SMAppService
+    private let agentPlist: String?
     private(set) var status: SMAppService.Status = .notRegistered
 
     var isAvailable: Bool {
-        Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil
+        guard Bundle.main.bundleURL.pathExtension == "app", Bundle.main.bundleIdentifier != nil else { return false }
+        guard let agentPlist else { return true }
+        return FileManager.default.fileExists(atPath: Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/LaunchAgents/\(agentPlist)").path)
     }
 
     var isRegistered: Bool { status == .enabled || status == .requiresApproval }
     var needsApproval: Bool { status == .requiresApproval }
+    var isEnabled: Bool { status == .enabled }
 
-    init() { refresh() }
+    init(agentPlist: String? = nil) {
+        self.agentPlist = agentPlist
+        service = agentPlist.map { SMAppService.agent(plistName: $0) } ?? .mainApp
+        refresh()
+    }
 
     func refresh() {
         status = isAvailable ? service.status : .notRegistered

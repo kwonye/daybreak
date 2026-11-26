@@ -74,12 +74,44 @@ struct NativeState: Sendable {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             previous = nil
         }
-        return (date != previous, date)
+        return (previous.map { date > $0 } ?? true, date)
     }
 
     func consume(date: String, startedAt: String) throws {
         try write(Self.json(["last_date": date, "started_at": startedAt, "status": "started"]),
                   to: directory.appendingPathComponent("schedule.json"))
+    }
+
+    func latestScheduleSlot(at now: Date, config: EngineConfiguration) throws -> Date? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = config.timeZone
+        let today = calendar.startOfDay(for: now)
+        for offset in 0...7 {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today),
+                  let slot = calendar.date(bySettingHour: config.hour, minute: config.minute, second: 0,
+                                           of: day, matchingPolicy: .nextTime, direction: .forward),
+                  calendar.isDate(slot, inSameDayAs: day), slot <= now else { continue }
+            let weekday = calendar.component(.weekday, from: day)
+            guard config.cadence == .daily
+                    || (config.cadence == .weekdays && (2...6).contains(weekday))
+                    || (config.cadence == .weekly && config.weekday.rawValue == weekday) else { continue }
+            return try due(at: slot, config: config).isDue ? slot : nil
+        }
+        return nil
+    }
+
+    private var reminderURL: URL { directory.appendingPathComponent("schedule-reminder.json") }
+
+    func scheduleReminder() throws -> ScheduleReminder? {
+        do {
+            return try JSONDecoder().decode(ScheduleReminder.self, from: Data(contentsOf: reminderURL))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return nil
+        }
+    }
+
+    func saveScheduleReminder(_ reminder: ScheduleReminder) throws {
+        try write(JSONEncoder().encode(reminder), to: reminderURL)
     }
 
     func save(_ report: Data, at date: Date = Date()) throws {

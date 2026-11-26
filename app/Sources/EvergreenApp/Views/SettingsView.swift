@@ -3,7 +3,7 @@ import EvergreenKit
 import SwiftUI
 
 struct SettingsView: View {
-    enum Tab: String { case general, behavior }
+    enum Tab: String { case general, behavior, schedule }
 
     let model: AppModel
     @State private var tab: Tab
@@ -18,10 +18,14 @@ struct SettingsView: View {
             GeneralSettingsView(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)
-            BehaviorSettingsView(model: model)
-                .frame(height: 650)
+            BehaviorSettingsView(model: model, schedule: false)
+                .frame(height: 540)
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(Tab.behavior)
+            BehaviorSettingsView(model: model, schedule: true)
+                .frame(height: 540)
+                .tabItem { Label("Schedule", systemImage: "calendar.badge.clock") }
+                .tag(Tab.schedule)
         }
         .frame(width: 580)
         .fixedSize(horizontal: false, vertical: true)
@@ -31,6 +35,7 @@ struct SettingsView: View {
 /// Edits the engine's own configuration keys; everything else in the file is preserved.
 private struct BehaviorSettingsView: View {
     let model: AppModel
+    let schedule: Bool
     @State private var draft = EngineSettings()
     @State private var saved = false
     @State private var saveError: String?
@@ -52,8 +57,32 @@ private struct BehaviorSettingsView: View {
                     }
                 }
             }
-            ScheduleFields(draft: $draft)
-            UpdateBehaviorFields(draft: $draft)
+            if schedule {
+                ScheduleFields(draft: $draft, hasHomebrew: model.hasHomebrew)
+                Section {
+                    Toggle("Run in background when Evergreen is closed", isOn: Binding(
+                        get: { model.backgroundUpdates.isRegistered },
+                        set: { enabled in
+                            do { try model.backgroundUpdates.setRegistered(enabled) }
+                            catch { saveError = error.localizedDescription }
+                        }
+                    ))
+                    .disabled(!model.backgroundUpdates.isAvailable)
+                    if model.backgroundUpdates.needsApproval {
+                        Button("Approve in Login Items", action: model.backgroundUpdates.openLoginItemsSettings)
+                    }
+                    Button("Missed Run Notifications…") {
+                        Task { await ScheduleNotifications.requestPermission(openSettingsIfDenied: true) }
+                    }
+                } header: {
+                    Text("Background and Reminders")
+                } footer: {
+                    Text("Background updates run while you’re signed in. The menu bar can be hidden.")
+                }
+            } else {
+                UpdateBehaviorFields(draft: $draft)
+                AppManagementFields()
+            }
             if !problems.isEmpty {
                 Section {
                     ForEach(problems, id: \.self) {
@@ -94,6 +123,10 @@ private struct BehaviorSettingsView: View {
         .onAppear {
             config.reload()
             draft = config.settings
+            if schedule { model.backgroundUpdates.refresh() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if schedule { model.backgroundUpdates.refresh() }
         }
         .onChange(of: draft) { saved = false }
         .alert("Couldn’t Save", isPresented: Binding(
@@ -106,9 +139,11 @@ private struct BehaviorSettingsView: View {
     }
 
     private func save() {
+        let enablingSchedule = draft.automaticRuns && !config.settings.automaticRuns
         saved = config.save(settings: draft)
         if saved {
             draft = config.settings
+            if enablingSchedule { Task { await ScheduleNotifications.requestPermission() } }
         } else {
             // Shown here rather than in the main window's whitelist alert.
             saveError = config.actionError ?? "Unknown error"

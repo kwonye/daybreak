@@ -18,12 +18,13 @@ let package = Package(
         // Native engine and shared config and report models.
         .target(name: "EvergreenStoreBridge", cSettings: [.unsafeFlags(["-fobjc-arc"])],
                 linkerSettings: [.linkedFramework("Security")]),
-        .target(name: "EvergreenKit", dependencies: ["EvergreenStoreBridge"]),
+        .target(name: "EvergreenArchive", linkerSettings: [.linkedLibrary("archive")]),
+        .target(name: "EvergreenKit", dependencies: ["EvergreenStoreBridge", "EvergreenArchive"]),
         .executableTarget(name: "EvergreenCLI", dependencies: ["EvergreenKit"]),
         .executableTarget(name: "EvergreenApp", dependencies: ["EvergreenKit", "Sparkle"],
                           linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .executableTarget(name: "EvergreenStoreInstaller", dependencies: ["EvergreenKit"]),
-        .testTarget(name: "EvergreenKitTests", dependencies: ["EvergreenKit"]),
+        .testTarget(name: "EvergreenKitTests", dependencies: ["EvergreenKit", "EvergreenArchive"]),
     ],
     swiftLanguageModes: [.v6]
 )

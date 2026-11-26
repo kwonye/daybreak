@@ -1,8 +1,32 @@
 import AppKit
 import EvergreenKit
 import SwiftUI
+import UserNotifications
 
 @main
+enum EvergreenEntryPoint {
+    @MainActor static func main() {
+        guard CommandLine.arguments.contains("--schedule-agent") else { return EvergreenApp.main() }
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        let path = UserDefaults.standard.string(forKey: AppModel.DefaultsKey.stateDirectory) ?? ""
+        let options = LaunchOptions(arguments: CommandLine.arguments)
+        let configURL = options.configPath.map { URL(fileURLWithPath: $0) } ?? ConfigStore.defaultURL
+        let client = EngineClient(configURL: configURL, stateDirectory: HistoryStore.resolveStateDirectory(preference: path))
+        RunLoop.main.add(Timer(timeInterval: 3600, repeats: true) { _ in }, forMode: .common)
+        Task.detached(priority: .utility) {
+            do {
+                let result = try await client.serviceSchedule()
+                if result.shouldNotify, let reminder = result.reminder { await ScheduleNotifications.post(reminder) }
+                exit(0)
+            } catch {
+                NSLog("Evergreen background schedule: %@", error.localizedDescription)
+                exit(1)
+            }
+        }
+        RunLoop.main.run()
+    }
+}
+
 struct EvergreenApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
@@ -23,13 +47,16 @@ struct EvergreenApp: App {
             EvergreenCommands(model: model)
         }
 
-        MenuBarExtra("Evergreen", systemImage: "tree", isInserted: $model.showMenuBar) {
+        MenuBarExtra(isInserted: $model.showMenuBar) {
             MenuBarPanel(model: model)
                 .onAppear {
                     appDelegate.model = model
                     appDelegate.applyAppearance(model.launchOptions.appearance)
                     if model.hideDockIcon { model.applyDockPreference() }
                 }
+        } label: {
+            Image(systemName: model.scheduler.missed == nil ? "tree" : "tree.circle.fill")
+                .accessibilityLabel(model.scheduler.missed == nil ? "Evergreen" : "Evergreen, scheduled update missed")
         }
         .menuBarExtraStyle(.window)
 
@@ -53,7 +80,7 @@ struct EvergreenCommands: Commands {
         }
         CommandGroup(replacing: .newItem) {}
         CommandGroup(before: .sidebar) {
-            ForEach(SidebarSection.allCases) { section in
+            ForEach(model.sidebarSections) { section in
                 Button(section.title) { model.selection = section }
                     .keyboardShortcut(KeyEquivalent(section.shortcut), modifiers: .command)
             }
@@ -107,14 +134,45 @@ enum AboutPanel {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    var model: AppModel?
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    var model: AppModel? {
+        didSet { if let requestedSlot { runRequestedSchedule(at: requestedSlot) } }
+    }
+    private var requestedSlot: Date?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            UNUserNotificationCenter.current().delegate = self
+            ScheduleNotifications.configure()
+        }
         // Needed when launched as a bare executable via `swift run` (no Info.plist).
         guard Bundle.main.bundleURL.pathExtension != "app" else { return }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        let content = response.notification.request.content
+        guard content.categoryIdentifier == "evergreen.schedule.missed",
+              response.actionIdentifier != UNNotificationDismissActionIdentifier,
+              let timestamp = content.userInfo["scheduledAt"] as? TimeInterval else { return }
+        let slot = Date(timeIntervalSince1970: timestamp)
+        await MainActor.run { runRequestedSchedule(at: slot) }
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .list]
+    }
+
+    private func runRequestedSchedule(at slot: Date) {
+        guard let model else { requestedSlot = slot; return }
+        requestedSlot = nil
+        Task {
+            await model.startIfNeeded()
+            await model.scheduler.runMissedNow(expectedAt: slot)
+        }
     }
 
     /// `--appearance light|dark` (screenshots/QA); otherwise follow the system.

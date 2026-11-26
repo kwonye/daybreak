@@ -1,8 +1,14 @@
 import Foundation
 
-/// Published cask versions can point users to a newer release for a manually
-/// installed app. This catalog never establishes eligibility for installation.
+/// Matches published releases to manually installed app bundles.
 struct HomebrewCatalog: Sendable {
+    private struct ArtifactKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+
     private struct Identity: Hashable, Sendable {
         let bundleID: String
         let appName: String
@@ -29,6 +35,7 @@ struct HomebrewCatalog: Sendable {
 
         let isApp: Bool
         let appName: String?
+        let isSimple: Bool
         let uninstall: [Uninstall]
 
         init(from decoder: Decoder) throws {
@@ -40,6 +47,12 @@ struct HomebrewCatalog: Sendable {
             let options = try? app?.decode(Target.self)
             let declaredTarget = try? values.decode(String.self, forKey: .target)
             appName = source.map { ((options?.target ?? declaredTarget ?? $0) as NSString).lastPathComponent }
+            let keys = try decoder.container(keyedBy: ArtifactKey.self).allKeys
+            // Command links and completion generation are Homebrew integration for a standalone app.
+            let appAndCommandIntegration = ["app", "target", "uninstall", "zap", "binary",
+                                            "command_wrapper", "generate_completions_from_executable"]
+            isSimple = keys.allSatisfy { appAndCommandIntegration.contains($0.stringValue) }
+                && (!isApp || (source?.contains("/") == false && app?.isAtEnd == true))
         }
     }
 
@@ -49,6 +62,8 @@ struct HomebrewCatalog: Sendable {
             let artifacts: [Artifact]?
             let disabled: Bool?
             let deprecated: Bool?
+            let url: URL?
+            let sha256: String?
         }
 
         let version: String
@@ -56,6 +71,8 @@ struct HomebrewCatalog: Sendable {
         let disabled: Bool
         let artifacts: [Artifact]
         let variations: [String: Variation]?
+        let url: URL?
+        let sha256: String?
 
         // A cask may mention helpers in its uninstall stanza. Only trust the
         // association when it contains exactly one app and one quit identity.
@@ -76,11 +93,29 @@ struct HomebrewCatalog: Sendable {
                      variation.disabled != true && variation.deprecated != true)
             }
         }
+
+        func releaseArtifact(architecture: String) -> ReleaseArtifact? {
+            let macVariations = (variations ?? [:]).filter { !$0.key.hasSuffix("_linux") }.values
+            guard artifacts.allSatisfy(\.isSimple),
+                  macVariations.allSatisfy({ $0.artifacts?.allSatisfy(\.isSimple) ?? true }),
+                  let base = ReleaseArtifact(url: url, sha256: sha256) else { return nil }
+            let variants = macVariations.compactMap { variation -> ReleaseArtifact? in
+                // A changed URL without its own checksum is not a pinned alternate download.
+                let url = variation.url ?? url
+                let hash = variation.sha256 ?? (url == self.url ? sha256 : nil)
+                return ReleaseArtifact(url: url, sha256: hash)
+            }
+            guard variants.count == macVariations.count else { return nil }
+            let artifacts = Set(variants + [base])
+            if artifacts.count == 1 { return base }
+            let matches = artifacts.filter { $0.matchesArchitecture(architecture) }
+            return matches.count == 1 ? matches.first : nil
+        }
     }
 
-    private let versions: [Identity: String]
+    private let releases: [Identity: PublishedRelease]
 
-    init(data: Data) throws {
+    init(data: Data, architecture: String = ReleaseArtifact.nativeArchitecture) throws {
         let casks = try JSONDecoder().decode([Cask].self, from: data)
         var matches: [Identity: [Cask]] = [:]
         for cask in casks where !cask.disabled && !cask.deprecated {
@@ -88,17 +123,17 @@ struct HomebrewCatalog: Sendable {
                 matches[identity, default: []].append(cask)
             }
         }
-        versions = matches.compactMapValues { candidates in
+        releases = matches.compactMapValues { candidates in
             guard candidates.count == 1, let cask = candidates.first, cask.hasMatchingMacVariations else { return nil }
-            return cask.version
+            return PublishedRelease(version: cask.version, artifact: cask.releaseArtifact(architecture: architecture))
         }
     }
 
-    func newerVersion(bundleID: String, appPath: String, installed: String) -> String? {
+    func newerRelease(bundleID: String, appPath: String, installed: String) -> PublishedRelease? {
         let key = Identity(bundleID: bundleID, appName: (appPath as NSString).lastPathComponent)
-        guard let version = versions[key],
-              ReleaseRepository.compare(version, installed: installed) == .orderedDescending else { return nil }
-        return version
+        guard let release = releases[key],
+              ReleaseRepository.compare(release.version, installed: installed) == .orderedDescending else { return nil }
+        return release
     }
 
     static func fetch() async -> HomebrewCatalog? {

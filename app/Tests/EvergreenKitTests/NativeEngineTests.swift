@@ -4,7 +4,7 @@ import Testing
 @testable import EvergreenKit
 
 @Suite struct NativeEngineTests {
-    @Test func previewOnlyUsesInventoryAndPreservesState() throws {
+    @Test func previewOnlyUsesInventoryAndPreservesState() async throws {
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }
         let platform = FakePlatform([sample(), sample(id: "com.docker.docker"),
@@ -12,7 +12,7 @@ import Testing
                                      sample(id: "com.example.skip")])
         let runner = UpdaterProcess { _, _ in Issue.record("Preview invoked a program"); throw EngineFailure("unexpected") }
         let engine = NativeEngine(configURL: nil, stateDirectory: directory, process: runner, platform: platform)
-        let output = try engine.execute(.run, due: true, skip: ["com.example.skip"]) {
+        let output = try await engine.execute(.run, due: true, skip: ["com.example.skip"]) {
             date("2026-11-20T20:00:00Z")
         }
         let report = try JSONDecoder().decode(RunReport.self, from: output.data)
@@ -20,10 +20,10 @@ import Testing
         #expect(output.exitCode == 2)
         #expect(report.results.map(\.status) == [.unsupported, .blocked, .excluded, .excluded, .excluded])
         #expect(!FileManager.default.fileExists(atPath: directory.path))
-        #expect(throws: EngineFailure.self) { try engine.execute(.run, skip: [""]) }
+        await #expect(throws: EngineFailure.self) { try await engine.execute(.run, skip: [""]) }
     }
 
-    @Test func applyOnlyTargetsConfirmedRunningInstances() throws {
+    @Test func applyOnlyTargetsConfirmedRunningInstances() async throws {
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }
         let config = temporaryURL()
@@ -33,10 +33,10 @@ import Testing
         let duplicate = sample(id: first.bundleID, path: "/Applications/Duplicate.app")
         let platform = FakePlatform([first, duplicate])
         let engine = NativeEngine(configURL: config, stateDirectory: directory, platform: platform)
-        let preview = try JSONDecoder().decode(RunReport.self, from: engine.execute(.run).data)
+        let preview = try JSONDecoder().decode(RunReport.self, from: await engine.execute(.run).data)
         let selected = try #require(preview.results.first)
         #expect(selected.path == first.path)
-        let result = try engine.execute(.run, apply: true, confirmed: [selected])
+        let result = try await engine.execute(.run, apply: true, confirmed: [selected])
         let applied = try JSONDecoder().decode(RunReport.self, from: result.data)
         #expect(applied.results.map(\.path) == [first.path])
         #expect(applied.results.map(\.status) == [.restartOnlyUnverified])
@@ -47,23 +47,23 @@ import Testing
                                   processes: [changed], metadata: first.metadata, stale: false)
         let changedPlatform = FakePlatform([replaced, duplicate])
         let changedEngine = NativeEngine(configURL: config, stateDirectory: directory, platform: changedPlatform)
-        let skipped = try changedEngine.execute(.run, apply: true, confirmed: [selected])
+        let skipped = try await changedEngine.execute(.run, apply: true, confirmed: [selected])
         let skippedReport = try JSONDecoder().decode(RunReport.self, from: skipped.data)
         #expect(skippedReport.results.map(\.status) == [.skipped])
         #expect(changedPlatform.events == ["inventory"])
     }
 
-    @Test func dueRunConsumesDateBeforeInventoryFailure() throws {
+    @Test func dueRunConsumesDateBeforeInventoryFailure() async throws {
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }
         let platform = FakePlatform([])
         platform.inventoryError = EngineFailure("cannot access inventory")
         let engine = NativeEngine(configURL: nil, stateDirectory: directory, platform: platform)
         let now = { date("2026-11-20T20:00:00Z") }
-        #expect(throws: EngineFailure("cannot access inventory")) {
-            try engine.execute(.run, apply: true, due: true, now: now)
+        await #expect(throws: EngineFailure("cannot access inventory")) {
+            try await engine.execute(.run, apply: true, due: true, now: now)
         }
-        let result = try engine.execute(.run, apply: true, due: true, now: now)
+        let result = try await engine.execute(.run, apply: true, due: true, now: now)
         let report = try JSONDecoder().decode(RunReport.self, from: result.data)
         #expect(report.status == "not_due")
         #expect(platform.events == ["inventory"])
@@ -102,7 +102,7 @@ import Testing
         #expect(try state.due(at: date("2026-12-01T09:00:00Z"), config: weekly).isDue)
     }
 
-    @Test func automaticRunRequiresOptInAndSharesTheCLIGate() throws {
+    @Test func automaticRunRequiresOptInAndSharesTheCLIGate() async throws {
         let config = temporaryURL()
         let directory = temporaryURL()
         defer {
@@ -112,15 +112,62 @@ import Testing
         let now = { date("2026-11-23T20:00:00Z") }
         let platform = FakePlatform([])
         let engine = NativeEngine(configURL: config, stateDirectory: directory, platform: platform)
-        let disabled = try engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
+        let disabled = try await engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
         #expect(try JSONDecoder().decode(RunReport.self, from: disabled.data).status == "not_due")
         #expect(platform.events.isEmpty)
         try Data(#"{"automatic_runs":true}"#.utf8).write(to: config)
-        let scheduled = try engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
+        let scheduled = try await engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true, now: now)
         #expect(try JSONDecoder().decode(RunReport.self, from: scheduled.data).apply)
-        let cli = try engine.execute(.run, apply: true, due: true, now: now)
+        let cli = try await engine.execute(.run, apply: true, due: true, now: now)
         #expect(try JSONDecoder().decode(RunReport.self, from: cli.data).status == "not_due")
         #expect(platform.events == ["inventory"])
+    }
+
+    @Test(arguments: ScheduleScope.allCases)
+    func missedMorningRunCatchesUpOnceWithTheSelectedScope(scope: ScheduleScope) async throws {
+        let root = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let brew = root.appendingPathComponent("brew")
+        try Data().write(to: brew)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: brew.path)
+        let config = root.appendingPathComponent("config.json")
+        try Data(#"{"automatic_runs":true,"hour":8,"timezone":"UTC","schedule_scope":"\#(scope.rawValue)"}"#.utf8)
+            .write(to: config)
+        let state = root.appendingPathComponent("state")
+        let version = OSAllocatedUnfairLock(initialState: "1.0")
+        let upgrades = OSAllocatedUnfairLock(initialState: 0)
+        let runner = UpdaterProcess(searchPath: root.path) { args, _ in
+            let output: String
+            switch args {
+            case [brew.path, "--caskroom"]:
+                output = root.appendingPathComponent("Caskroom").path
+            case [brew.path, "info", "--json=v2", "--installed"]:
+                let active = version.withLock { $0 }
+                output = #"{"formulae":[{"name":"example","installed":[{"version":"\#(active)"}]}],"casks":[]}"#
+            case [brew.path, "outdated", "--json=v2"]:
+                output = #"{"formulae":[{"name":"example","current_version":"2.0"}],"casks":[]}"#
+            case ["/usr/bin/env", "HOMEBREW_NO_ASK=1", "HOMEBREW_NO_AUTO_UPDATE=1", brew.path, "upgrade", "--formula", "example"]:
+                upgrades.withLock { $0 += 1 }
+                version.withLock { $0 = "2.0" }
+                output = ""
+            default: throw EngineFailure("Unexpected command.")
+            }
+            return ProcessOutput(exitCode: 0, stdout: Data(output.utf8), stderr: Data())
+        }
+        let app = sample()
+        let platform = FakePlatform([app])
+        let engine = NativeEngine(configURL: config, stateDirectory: state, process: runner, platform: platform)
+        let early = try await engine.execute(.run, apply: true, due: true, now: { date("2026-11-26T07:59:00Z") })
+        #expect(try JSONDecoder().decode(RunReport.self, from: early.data).status == "not_due")
+        let catchUp = try await engine.execute(.run, apply: true, due: true, requireAutomaticRuns: true,
+                                         now: { date("2026-11-26T09:00:00Z") })
+        let results = try JSONDecoder().decode(RunReport.self, from: catchUp.data).results
+        #expect(results.contains { $0.bundleID == app.bundleID } == (scope != .brew))
+        #expect(results.contains { $0.bundleID == "brew:formula:example" && $0.status == .updated } == (scope != .apps))
+        let later = try await engine.execute(.run, apply: true, due: true, now: { date("2026-11-26T09:30:00Z") })
+        #expect(try JSONDecoder().decode(RunReport.self, from: later.data).status == "not_due")
+        #expect(upgrades.withLock { $0 } == (scope == .apps ? 0 : 1))
     }
 
     @Test func lockExcludesOtherRunsAndReportsArePrivate() throws {
@@ -142,16 +189,16 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.appendingPathComponent("runs").path).count == 2)
     }
 
-    @Test func cliReportsStatusAndRejectsRemovedDryRunFlag() throws {
+    @Test func cliReportsStatusAndRejectsRemovedDryRunFlag() async throws {
         let dir = temporaryURL()
-        let output = EvergreenCommandLine.run(["--state-dir", dir.path, "status"])
+        let output = await EvergreenCommandLine.run(["--state-dir", dir.path, "status"])
         #expect(output.exitCode == 0)
         #expect(try JSONDecoder().decode(RunReport.self, from: output.stdout).isNeverRun)
-        #expect(EvergreenCommandLine.run(["run", "--dry-run"]).exitCode == 2)
+        #expect(await EvergreenCommandLine.run(["run", "--dry-run"]).exitCode == 2)
         let config = temporaryURL()
         defer { try? FileManager.default.removeItem(at: config) }
         try Data(#"{"hour":99}"#.utf8).write(to: config)
-        let invalid = EvergreenCommandLine.run(["inventory", "--config", config.path])
+        let invalid = await EvergreenCommandLine.run(["inventory", "--config", config.path])
         #expect(invalid.exitCode == 1)
         #expect(try JSONDecoder().decode(EngineErrorPayload.self, from: invalid.stderr).status == "error")
     }

@@ -51,6 +51,19 @@ public enum ScheduleCadence: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum ScheduleScope: String, CaseIterable, Identifiable, Sendable, Codable {
+    case apps, brew, both
+    public var id: Self { self }
+
+    public var title: String {
+        switch self {
+        case .apps: "Apps"
+        case .brew: "Brew"
+        case .both: "Apps and Brew"
+        }
+    }
+}
+
 /// Gregorian weekday numbers as returned by Calendar.
 public enum ScheduleWeekday: Int, CaseIterable, Identifiable, Sendable {
     case monday = 2, tuesday, wednesday, thursday, friday, saturday, sunday = 1
@@ -67,6 +80,7 @@ public struct EngineSettings: Sendable, Equatable {
     public var cadence: ScheduleCadence = .daily
     public var weekday: ScheduleWeekday = .monday
     public var automaticRuns = false
+    public var scheduleScope: ScheduleScope = .apps
     public var timezone: String = EngineSettings.defaultTimezone
     public var quitTimeoutSeconds: Double = 60
     public var restartCurrent: Bool = true
@@ -196,6 +210,12 @@ public struct ConfigDocument: Sendable, Equatable {
             }
             settings.cadence = cadence
         }
+        if let value = root["schedule_scope"] {
+            guard let value = value.stringValue, let scope = ScheduleScope(rawValue: value) else {
+                throw ConfigError.unexpectedType(key: "schedule_scope", expected: "apps, brew, or both")
+            }
+            settings.scheduleScope = scope
+        }
         if let value = root["schedule_weekday"] {
             guard let value = value.intValue, let weekday = ScheduleWeekday(rawValue: value) else {
                 throw ConfigError.unexpectedType(key: "schedule_weekday", expected: "an integer from 1 through 7")
@@ -232,6 +252,7 @@ public struct ConfigDocument: Sendable, Equatable {
         if settings.cadence != original.cadence { root["schedule_cadence"] = .string(settings.cadence.rawValue) }
         if settings.weekday != original.weekday { root["schedule_weekday"] = .int(settings.weekday.rawValue) }
         if settings.automaticRuns != original.automaticRuns { root["automatic_runs"] = .bool(settings.automaticRuns) }
+        if settings.scheduleScope != original.scheduleScope { root["schedule_scope"] = .string(settings.scheduleScope.rawValue) }
         if settings.timezone != original.timezone { root["timezone"] = .string(settings.timezone) }
         if settings.quitTimeoutSeconds != original.quitTimeoutSeconds {
             let value = settings.quitTimeoutSeconds

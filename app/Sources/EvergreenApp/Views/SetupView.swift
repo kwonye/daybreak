@@ -1,13 +1,15 @@
+import AppKit
 import EvergreenKit
 import SwiftUI
 
 struct SetupView: View {
     private enum Step: Int, CaseIterable {
-        case updates, schedule, appearance
+        case updates, appManagement, schedule, appearance
 
         var title: String {
             switch self {
             case .updates: "Welcome to Evergreen"
+            case .appManagement: "Allow app updates"
             case .schedule: "Pick a good time"
             case .appearance: "Make Evergreen yours"
             }
@@ -16,7 +18,8 @@ struct SetupView: View {
         var subtitle: String {
             switch self {
             case .updates: "Choose how you’d like to keep your apps up to date."
-            case .schedule: "Choose when Evergreen can update and restart your apps."
+            case .appManagement: "Allow Evergreen to replace installed apps when you update them."
+            case .schedule: "Choose what Evergreen updates and when."
             case .appearance: "Choose when Evergreen opens and where you’ll find it."
             }
         }
@@ -24,6 +27,7 @@ struct SetupView: View {
         var symbol: String {
             switch self {
             case .updates: "tree"
+            case .appManagement: "lock.shield"
             case .schedule: "calendar.badge.clock"
             case .appearance: "menubar.rectangle"
             }
@@ -37,7 +41,6 @@ struct SetupView: View {
     @State private var original: EngineSettings
     @State private var showMenuBar: Bool
     @State private var hideDockIcon: Bool
-    @State private var hideProtected: Bool
     @State private var startAtLogin: Bool
     @State private var originalStartAtLogin: Bool
     @State private var error: String?
@@ -49,7 +52,6 @@ struct SetupView: View {
         _original = State(initialValue: settings)
         _showMenuBar = State(initialValue: model.showMenuBar)
         _hideDockIcon = State(initialValue: model.hideDockIcon)
-        _hideProtected = State(initialValue: model.inventory.hideProtected)
         _startAtLogin = State(initialValue: model.loginItem.isRegistered)
         _originalStartAtLogin = State(initialValue: model.loginItem.isRegistered)
     }
@@ -61,8 +63,10 @@ struct SetupView: View {
                 switch step {
                 case .updates:
                     UpdateBehaviorFields(draft: $draft, context: .setup)
+                case .appManagement:
+                    AppManagementFields()
                 case .schedule:
-                    ScheduleFields(draft: $draft, context: .setup)
+                    ScheduleFields(draft: $draft, hasHomebrew: model.hasHomebrew, context: .setup)
                 case .appearance:
                     Section("When you sign in") {
                         Toggle("Open Evergreen at login", isOn: $startAtLogin)
@@ -78,11 +82,6 @@ struct SetupView: View {
                         Text("Where to find Evergreen")
                     } footer: {
                         Text("With the Dock icon hidden, you can open Evergreen from the menu bar.")
-                    }
-                    Section {
-                        DisclosureGroup("More display options") {
-                            Toggle("Hide protected apps", isOn: $hideProtected)
-                        }
                     }
                 }
             }
@@ -167,10 +166,12 @@ struct SetupView: View {
         }
         model.showMenuBar = showMenuBar
         model.hideDockIcon = hideDockIcon
-        model.inventory.hideProtected = hideProtected
         model.completeSetup()
         dismiss()
-        Task { await model.scheduler.runScheduledIfDue() }
+        Task {
+            if draft.automaticRuns { await ScheduleNotifications.requestPermission() }
+            await model.scheduler.runScheduledIfDue()
+        }
     }
 }
 
@@ -192,7 +193,7 @@ struct UpdateBehaviorFields: View {
             if context == .setup {
                 Text("Choose each App Store update from the Updates tab. Your Mac may ask you to approve the install.")
             } else {
-                Text("macOS may ask for administrator approval. These installs are started individually from Updates.")
+                Text("macOS may ask for administrator approval. These installs are started individually from Apps.")
             }
         }
         Section {
@@ -237,6 +238,7 @@ struct UpdateBehaviorFields: View {
 
 struct ScheduleFields: View {
     @Binding var draft: EngineSettings
+    let hasHomebrew: Bool
     var context: SetupFieldContext = .settings
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
@@ -246,24 +248,26 @@ struct ScheduleFields: View {
 
     var body: some View {
         Section {
-            Toggle(context == .setup ? "Update and restart apps on a schedule" : "Run automatically while Evergreen is open",
-                   isOn: $draft.automaticRuns)
+            Toggle("Run scheduled updates", isOn: $draft.automaticRuns)
             if context == .settings || draft.automaticRuns { timingOptions }
         } header: {
             Text("Schedule")
         } footer: {
-            if context == .setup {
-                Text(draft.automaticRuns
-                     ? "If you miss the chosen time, Evergreen can catch up later that day while it’s open."
-                     : "Evergreen needs to be open to run on a schedule.")
-            } else {
-                Text("A missed run can start later on the same day. The schedule also applies to CLI runs using --due.")
-            }
+            Text("Evergreen starts within 30 minutes of the scheduled time. If it misses that window, it reminds you when updates are ready.")
         }
     }
 
     @ViewBuilder
     private var timingOptions: some View {
+        if hasHomebrew {
+            Picker("Update", selection: $draft.scheduleScope) {
+                ForEach(ScheduleScope.allCases) {
+                    Text($0.title).tag($0)
+                }
+            }
+        } else if draft.scheduleScope != .apps {
+            Button("Switch Schedule to Apps") { draft.scheduleScope = .apps }
+        }
         Picker("Repeat", selection: $draft.cadence) {
             ForEach(ScheduleCadence.allCases) { Text($0.title).tag($0) }
         }
@@ -272,9 +276,11 @@ struct ScheduleFields: View {
                 ForEach(ScheduleWeekday.allCases) { Text($0.title).tag($0) }
             }
         }
-        DatePicker("Time", selection: time, displayedComponents: .hourAndMinute)
-            .environment(\.calendar, calendar)
-            .environment(\.timeZone, .gmt)
+        LabeledContent("Time") {
+            ScheduleTimePicker(date: time)
+                .fixedSize()
+                .accessibilityLabel("Time")
+        }
         LabeledContent("Time zone") {
             TimeZonePicker(selection: $draft.timezone, keep: [draft.timezone])
         }
@@ -288,6 +294,37 @@ struct ScheduleFields: View {
         } set: { date in
             draft.hour = calendar.component(.hour, from: date)
             draft.minute = calendar.component(.minute, from: date)
+        }
+    }
+}
+
+private struct ScheduleTimePicker: NSViewRepresentable {
+    @Binding var date: Date
+
+    func makeCoordinator() -> Coordinator { Coordinator(date: $date) }
+
+    func makeNSView(context: Context) -> NSDatePicker {
+        let picker = NSDatePicker()
+        picker.datePickerStyle = .textFieldAndStepper
+        picker.datePickerElements = [.hourMinute]
+        // The binding encodes a wall-clock hour and minute using GMT as its reference.
+        picker.timeZone = .gmt
+        picker.target = context.coordinator
+        picker.action = #selector(Coordinator.didChange(_:))
+        return picker
+    }
+
+    func updateNSView(_ picker: NSDatePicker, context: Context) {
+        context.coordinator.date = $date
+        if picker.dateValue != date { picker.dateValue = date }
+    }
+
+    @MainActor final class Coordinator: NSObject {
+        var date: Binding<Date>
+        init(date: Binding<Date>) { self.date = date }
+
+        @objc func didChange(_ picker: NSDatePicker) {
+            date.wrappedValue = picker.dateValue
         }
     }
 }

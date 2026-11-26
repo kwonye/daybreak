@@ -20,7 +20,7 @@ enum Snapshotter {
             try? await Task.sleep(for: .milliseconds(500))
         }
 
-        for section in SidebarSection.allCases {
+        for section in model.sidebarSections {
             model.selection = section
             try? await Task.sleep(for: .seconds(2))
             if let window = mainWindow() {

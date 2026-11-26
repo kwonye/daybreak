@@ -21,6 +21,13 @@ struct MenuBarPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 action("Open Evergreen", icon: "macwindow") { showWindow() }
                     .accessibilityIdentifier("menuBar.open")
+                if let missed = model.scheduler.missed {
+                    action("Run Updates Now", icon: "arrow.triangle.2.circlepath") {
+                        showWindow(missed.scope == .brew ? .brew : .updates)
+                        Task { await model.scheduler.runMissedNow(expectedAt: missed.scheduledAt) }
+                    }
+                    .disabled(!model.updates.canCheck)
+                }
                 action("Check for Updates", icon: "arrow.down.app") {
                     showWindow(.updates)
                     Task {
@@ -52,6 +59,7 @@ struct MenuBarPanel: View {
         if model.updates.installingID != nil { return "Installing update…" }
         if model.updates.isChecking { return "Checking for updates…" }
         if model.scheduler.isBusy { return "Running scheduled updates…" }
+        if let missed = model.scheduler.missed { return "Scheduled update missed · \(missed.updateCount) ready" }
         if let latest = model.history.latest, let date = latest.startedDate {
             return "Last run \(date.formatted(date: .abbreviated, time: .shortened))"
         }

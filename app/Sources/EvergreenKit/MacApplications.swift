@@ -4,9 +4,14 @@ import Darwin
 import Foundation
 import Security
 
-struct ApplicationIdentity: Hashable {
-    let bundleID: String
-    let path: String
+public struct ApplicationIdentity: Hashable, Sendable {
+    public let bundleID: String
+    public let path: String
+
+    public init(bundleID: String, path: String) {
+        self.bundleID = bundleID
+        self.path = canonicalPath(path) ?? path
+    }
 }
 
 struct ManagedApp: Sendable {
@@ -60,6 +65,7 @@ struct AppProcess: Decodable, Sendable {
     let pid: Int
     let launched: TimeInterval
     let executable: String
+    var identity: ApplicationIdentity { ApplicationIdentity(bundleID: bundleID, path: path) }
 
     enum CodingKeys: String, CodingKey {
         case bundleID = "bundle_id", name, path, pid, launched, executable
@@ -181,7 +187,7 @@ struct MacApplications: ApplicationPlatform, Sendable {
     }
 
     func inventory() throws -> [ManagedApp] {
-        let groups = Dictionary(grouping: try records()) { ApplicationIdentity(bundleID: $0.bundleID, path: $0.path) }
+        let groups = Dictionary(grouping: try records(), by: \.identity)
         return try groups.keys.sorted { ($0.bundleID, $0.path) < ($1.bundleID, $1.path) }.compactMap { key in
             guard let rows = groups[key], let first = rows.first,
                   let metadata = try? BundleMetadata.read(key.path, observed: rows.map(\.executable)) else { return nil }
@@ -198,7 +204,7 @@ struct MacApplications: ApplicationPlatform, Sendable {
     /// Inventory for interactive updates, including closed apps and without hashing every binary.
     func installedApps() throws -> [ManagedApp] {
         let records = try records()
-        let groups = Dictionary(grouping: records) { canonicalPath($0.path) ?? $0.path }
+        let groups = Dictionary(grouping: records, by: { $0.identity.path })
         let home = FileManager.default.homeDirectoryForCurrentUser
         let roots = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
         var paths = Set(groups.keys)
@@ -214,19 +220,17 @@ struct MacApplications: ApplicationPlatform, Sendable {
                 }
             }
         }
-        return paths.compactMap { canonical in
-            let rows = groups[canonical] ?? []
-            // Keep the observed URL for a running app so AppKit can still target the exact copy.
-            let path = rows.first?.path ?? canonical
+        return paths.compactMap { path in
             guard let info = try? BundleMetadata.info(path),
                   let id = info["CFBundleIdentifier"] as? String, !id.isEmpty,
                   info["CFBundlePackageType"] as? String == "APPL",
-                  InventoryApp.protectionReason(bundleID: id, path: canonical) == nil,
+                  InventoryApp.protectionReason(bundleID: id, path: path) == nil,
                   let metadata = try? BundleMetadata.read(path, observed: [], fingerprintExecutable: false)
             else { return nil }
+            let rows = (groups[path] ?? []).filter { $0.bundleID == id }
             let name = rows.first?.name
                 ?? (FileManager.default.displayName(atPath: path) as NSString).deletingPathExtension
-            return ManagedApp(bundleID: id, name: name, path: path, processes: rows.filter { $0.path == path },
+            return ManagedApp(bundleID: id, name: name, path: path, processes: rows,
                               metadata: metadata, stale: false)
         }.sorted { ($0.name.localizedLowercase, $0.path) < ($1.name.localizedLowercase, $1.path) }
     }
@@ -253,15 +257,14 @@ struct MacApplications: ApplicationPlatform, Sendable {
 
     func current(_ app: ManagedApp) throws -> [AppProcess] {
         return NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
-            .compactMap(Self.record).filter { $0.path == app.path }
+            .compactMap(Self.record).filter { $0.identity == app.identity }
     }
 
     func quit(_ app: ManagedApp) throws -> Bool {
         guard !app.isProtected else { throw EngineFailure("Protected application") }
         for row in try current(app) {
             if let running = NSRunningApplication(processIdentifier: pid_t(row.pid)),
-                      running.bundleIdentifier == app.bundleID, running.bundleURL?.path == app.path,
-                      (running.launchDate?.timeIntervalSince1970 ?? 0) == row.launched {
+               let observed = Self.record(running), observed.identity == app.identity, observed.launched == row.launched {
                 _ = running.terminate()
             }
         }
@@ -275,7 +278,9 @@ struct MacApplications: ApplicationPlatform, Sendable {
 
     func relaunch(_ app: ManagedApp) throws {
         guard !app.isProtected else { throw EngineFailure("Protected application") }
-        _ = try process.checked(["/usr/bin/open", "-g", app.path], 15)
+        let anotherCopyIsRunning = NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID)
+            .compactMap(Self.record).contains { $0.identity != app.identity }
+        _ = try process.checked(["/usr/bin/open", "-g"] + (anotherCopyIsRunning ? ["-n"] : []) + [app.path], 15)
     }
 
     func verify(_ app: ManagedApp, since: Date, target: String) throws -> (BundleMetadata, [Int]) {
@@ -307,14 +312,36 @@ struct MacApplications: ApplicationPlatform, Sendable {
     }
 
     func signer(_ app: ManagedApp) throws -> String {
-        let verification = try process.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app.path], 120)
-        guard verification.exitCode == 0 else {
-            if verification.stderrText.contains("resource fork, Finder information, or similar detritus not allowed") {
-                throw EngineFailure("Strict signature verification blocked by Finder/resource metadata; no metadata was removed")
-            }
-            throw EngineFailure("Strict signature verification failed (codesign exited \(verification.exitCode))")
+        let verify = ["/usr/bin/codesign", "--verify", "--deep", "--strict"]
+        let verification = try process.run(verify + [app.path], 120)
+        var verifiedPath = app.path
+        var temporaryDirectory: URL?
+        defer {
+            if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
         }
-        let result = try process.run(["/usr/bin/codesign", "-dv", "--verbose=4", app.path], 30)
+        if verification.exitCode != 0 {
+            let metadataError = "resource fork, Finder information, or similar detritus not allowed"
+            guard verification.stderrText.contains(metadataError) else {
+                throw EngineFailure("Strict signature verification failed (codesign exited \(verification.exitCode))")
+            }
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("evergreen-verification-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                     attributes: [.posixPermissions: 0o700])
+            temporaryDirectory = directory
+            let copy = directory.appendingPathComponent((app.path as NSString).lastPathComponent, isDirectory: true)
+            // Finder can record default folder positions after signing. Check
+            // the copied bundle with the original strict options.
+            if clonefile(app.path, copy.path, UInt32(CLONE_NOFOLLOW)) != 0 {
+                try FileManager.default.copyItem(atPath: app.path, toPath: copy.path)
+            }
+            guard try Self.removeDefaultFinderPositions(in: copy),
+                  try process.run(verify + [copy.path], 120).exitCode == 0 else {
+                throw EngineFailure("Strict signature verification failed after isolating the bundle’s Finder metadata")
+            }
+            verifiedPath = copy.path
+        }
+        let result = try process.run(["/usr/bin/codesign", "-dv", "--verbose=4", verifiedPath], 30)
         let prefix = "TeamIdentifier="
         let team = result.stderrText.split(separator: "\n").first(where: { $0.hasPrefix(prefix) })
             .map { String($0.dropFirst(prefix.count)) } ?? ""
@@ -322,6 +349,36 @@ struct MacApplications: ApplicationPlatform, Sendable {
             throw EngineFailure("Update requires an existing valid developer signing identity")
         }
         return team
+    }
+
+    /// Clears only Finder's unset folder icon location on a disposable copy.
+    private static func removeDefaultFinderPositions(in copy: URL) throws -> Bool {
+        let finderInfo = "com.apple.FinderInfo"
+        var defaultPosition = [UInt8](repeating: 0, count: 32)
+        defaultPosition.replaceSubrange(10..<14, with: [0xFF, 0xFF, 0xFF, 0xFF])
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        guard let entries = FileManager.default.enumerator(at: copy, includingPropertiesForKeys: Array(keys)) else {
+            return false
+        }
+        var removed = false
+        func normalize(_ directory: URL) throws {
+            var value = [UInt8](repeating: 0, count: defaultPosition.count)
+            let count = value.withUnsafeMutableBytes { bytes in
+                getxattr(directory.path, finderInfo, bytes.baseAddress, bytes.count, 0, XATTR_NOFOLLOW)
+            }
+            guard count == defaultPosition.count, value == defaultPosition else { return }
+            guard removexattr(directory.path, finderInfo, XATTR_NOFOLLOW) == 0 else {
+                throw EngineFailure("Couldn’t isolate the bundle’s Finder metadata")
+            }
+            removed = true
+        }
+
+        try normalize(copy)
+        for case let url as URL in entries {
+            let values = try url.resourceValues(forKeys: keys)
+            if values.isDirectory == true, values.isSymbolicLink != true { try normalize(url) }
+        }
+        return removed
     }
 
     func checkSignature(_ app: ManagedApp, expectedTeam: String) throws {

@@ -53,6 +53,8 @@ fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cp app/Resources/LaunchAgents/co.kwon.evergreen.schedule.plist "$APP/Contents/Library/LaunchAgents/"
 cp "$BIN_DIR/EvergreenApp" "$APP/Contents/MacOS/Evergreen"
 cp "$BIN_DIR/evergreen" "$APP/Contents/Helpers/evergreen"
 ln -s evergreen "$APP/Contents/Helpers/daybreak"

@@ -8,6 +8,10 @@ struct UpdateCheck {
     var requiresUserAction = false
 }
 
+struct UpdateRequiresApp: LocalizedError {
+    var errorDescription: String? { "Open the app to finish updating." }
+}
+
 struct UpdateBackend: Sendable {
     enum Kind: String, Sendable {
         case restart = "restart-only"
@@ -18,6 +22,7 @@ struct UpdateBackend: Sendable {
         case google
         case microsoft
         case command
+        case release
     }
 
     let kind: Kind
@@ -28,11 +33,15 @@ struct UpdateBackend: Sendable {
     var applyArguments: [String] = []
     var preventVendorQuit = false
     var sparkleProbeFeed: URL?
+    var interactiveInstallation = false
+    var stagedRelease: StagedRelease?
 
     var managesLifecycle: Bool { kind == .docker }
 
     func check(_ app: ManagedApp, interactiveCatalog: Bool = false) throws -> UpdateCheck {
         switch kind {
+        case .release:
+            return stagedRelease.map { UpdateCheck(state: .available, target: $0.version) } ?? UpdateCheck(state: .unknown)
         case .restart:
             return UpdateCheck(state: .unknown, detail: "No supported updater configured; restart may apply a staged update")
         case .sparkle:
@@ -54,7 +63,8 @@ struct UpdateBackend: Sendable {
             guard let casks = data["casks"] as? [[String: Any]] else {
                 throw EngineFailure("Homebrew returned an invalid cask list")
             }
-            let listed = casks.contains { $0["name"] as? String == identifier }
+            let token = identifier.split(separator: "/").last.map(String.init)
+            let listed = casks.contains { $0["name"] as? String == token && $0["pinned"] as? Bool != true }
             return UpdateCheck(state: listed ? .available : .current, detail: "Homebrew cask catalog result")
         case .appStore:
             let output = try process.checked([executable, "outdated"], 180)
@@ -97,18 +107,30 @@ struct UpdateBackend: Sendable {
     /// Returns Sparkle's explicit outcome when available. Other commands expose only exit status.
     func apply(_ app: ManagedApp) throws -> (outcome: String, detail: String)? {
         switch kind {
+        case .release:
+            guard let stagedRelease else { throw UpdateRequiresApp() }
+            try stagedRelease.install(over: app)
+            return ("completed", "Installed verified release.")
         case .restart: break
         case .sparkle:
             guard sparkleProbeFeed == nil else { throw EngineFailure("Open the app to update.") }
-            let result = try process.run([executable, app.path, "--check-immediately", "--user-agent-name", "Evergreen"], 900)
+            var arguments = [executable, app.path, "--check-immediately", "--user-agent-name", "Evergreen"]
+            if interactiveInstallation { arguments.append("--interactive") }
+            let result = try process.run(arguments, 900)
             switch result.exitCode {
             case 0: return ("completed", "")
+            case 3 where interactiveInstallation, 8 where interactiveInstallation: throw UpdateRequiresApp()
             case 4: return ("no_update", "No update was offered at install time")
+            case 5 where interactiveInstallation: throw CancellationError()
             default: throw EngineFailure("Sparkle install exited \(result.exitCode); needs attention")
             }
         case .homebrew:
-            let flags = preventVendorQuit ? ["--no-quit"] : []
-            _ = try process.checked([executable, "upgrade", "--cask"] + flags + [identifier], 900)
+            if interactiveInstallation, let package = BrewPackage(name: identifier, kind: .cask) {
+                try BrewPackages(executable: executable, process: process).upgrade(package)
+            } else {
+                let flags = preventVendorQuit ? ["--no-quit"] : []
+                _ = try process.checked([executable, "upgrade", "--cask"] + flags + [identifier], 900)
+            }
         case .appStore:
             _ = try process.checked([executable, "update", identifier], 900)
         case .docker:
@@ -179,7 +201,7 @@ struct BackendRegistry: Sendable {
         self.config = config
         self.includeBundledSparkle = includeBundledSparkle
         brew = process.executable(named: "brew")
-        casks = brew.map(Self.installedCasks) ?? [:]
+        casks = brew.map { Self.installedCasks(brew: $0, process: includeBundledSparkle ? process : nil) } ?? [:]
     }
 
     func backend(for app: ManagedApp) throws -> UpdateBackend {
@@ -205,7 +227,7 @@ struct BackendRegistry: Sendable {
                   spec["cask"]?.stringValue.flatMap({ $0.isEmpty ? nil : $0 }).map({ $0 == token }) ?? true else {
                 throw EngineFailure("Exact app path is not an installed Homebrew cask")
             }
-            guard token.range(of: #"^[a-z0-9][a-z0-9@+_.-]*$"#, options: .regularExpression) != nil else {
+            guard BrewPackage(name: token, kind: .cask) != nil else {
                 throw EngineFailure("Invalid Homebrew cask token")
             }
             return UpdateBackend(kind: .homebrew, process: process, executable: brew, identifier: token)
@@ -281,35 +303,35 @@ struct BackendRegistry: Sendable {
         return args
     }
 
-    static func installedCasks(brew: String) -> [String: String] {
-        let brewPrefix = URL(fileURLWithPath: brew).resolvingSymlinksInPath()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let roots = Set(["/opt/homebrew/Caskroom", "/usr/local/Caskroom", brewPrefix.appendingPathComponent("Caskroom").path])
+    static func installedCasks(brew: String, process: UpdaterProcess?) -> [String: String] {
+        let base = URL(fileURLWithPath: brew).resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        let prefix = base.lastPathComponent == "Homebrew" ? base.deletingLastPathComponent() : base
+        let reported = try? process?.checked([brew, "--caskroom"], 15).trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = reported.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? prefix.appendingPathComponent("Caskroom")
         func children(_ url: URL) -> [URL] {
             ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [])
                 .sorted { $0.path < $1.path }
         }
-        var casks: [String: String] = [:]
-        for root in roots.sorted() {
-            for cask in children(URL(fileURLWithPath: root)) {
-                let metadata = children(cask.appendingPathComponent(".metadata")).flatMap(children)
-                for version in metadata {
-                    for file in children(version.appendingPathComponent("Casks")) where file.pathExtension == "json" {
-                        guard let raw = try? Data(contentsOf: file),
-                              let object = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-                              let artifacts = object["artifacts"] as? [Any] else { continue }
-                        for artifact in artifacts {
-                            guard let app = (artifact as? [String: Any])?["app"] as? [Any],
-                                  let name = app.first as? String else { continue }
-                            let options = app.dropFirst().first as? [String: Any]
-                            let destination = options?["target"] as? String ?? name
-                            let path = destination.hasPrefix("/") ? destination : "/Applications/" + destination
-                            casks[path] = cask.lastPathComponent
-                        }
+        var casks: [String: Set<String>] = [:]
+        for cask in children(root) {
+            let metadata = children(cask.appendingPathComponent(".metadata")).flatMap(children)
+            for version in metadata {
+                for file in children(version.appendingPathComponent("Casks")) where file.pathExtension == "json" {
+                    guard let raw = try? Data(contentsOf: file),
+                          let object = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+                          let artifacts = object["artifacts"] as? [[String: Any]] else { continue }
+                    for artifact in artifacts {
+                        guard let app = artifact["app"] as? [Any], let name = app.first as? String else { continue }
+                        let options = app.dropFirst().first as? [String: Any]
+                        let destination = options?["target"] as? String ?? artifact["target"] as? String ?? name
+                        let path = destination.hasPrefix("/") ? destination : "/Applications/" + destination
+                        let token = object["full_token"] as? String ?? cask.lastPathComponent
+                        casks[path, default: []].insert(token)
                     }
                 }
             }
         }
-        return casks
+        return casks.compactMapValues { $0.count == 1 ? $0.first : nil }
     }
 }

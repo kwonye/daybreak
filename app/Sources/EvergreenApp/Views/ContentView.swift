@@ -8,7 +8,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SidebarSection.allCases, selection: $model.selection) { section in
+            List(model.sidebarSections, selection: $model.selection) { section in
                 Label(section.title, systemImage: section.symbol)
                     .badge(badge(for: section))
                     .help("\(section.title) (⌘\(String(section.shortcut)))")
@@ -18,6 +18,19 @@ struct ContentView: View {
         } detail: {
             detail
                 .frame(minWidth: 600, minHeight: 420)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let missed = model.scheduler.missed, relevant(missed) {
+                        HStack {
+                            Label("Scheduled update missed", systemImage: "clock.badge.exclamationmark")
+                            Spacer()
+                            Button("Run Updates Now") { Task { await model.scheduler.runMissedNow(expectedAt: missed.scheduledAt) } }
+                                .disabled(!model.updates.canCheck)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.bar)
+                    }
+                }
         }
         .task {
             await model.startIfNeeded()
@@ -40,9 +53,18 @@ struct ContentView: View {
         }
     }
 
+    private func relevant(_ reminder: ScheduleReminder) -> Bool {
+        switch model.selection ?? .updates {
+        case .updates: reminder.scope != .brew
+        case .brew: reminder.scope != .apps
+        default: false
+        }
+    }
+
     private func badge(for section: SidebarSection) -> Int {
         switch section {
-        case .updates: model.updates.hasUpdates
+        case .updates: model.updates.updateCount(in: .software)
+        case .brew: model.updates.updateCount(in: .brew)
         case .whitelist: model.config.entries.count
         default: 0
         }
@@ -56,9 +78,9 @@ struct ContentView: View {
         default:
             switch model.selection ?? .updates {
             case .updates:
-                UpdatesView(model: model.updates)
-            case .runningApps:
-                RunningAppsView(inventory: model.inventory, config: model.config)
+                UpdatesView(model: model.updates, config: model.config, scope: .software)
+            case .brew:
+                UpdatesView(model: model.updates, config: model.config, scope: .brew)
             case .whitelist:
                 WhitelistView(config: model.config, inventory: model.inventory,
                               revealConfig: model.revealConfigInFinder, addRequest: model.whitelistAddRequest)
@@ -108,7 +130,7 @@ private struct EngineStatusFooter: View {
             if model.updates.installingID != nil { return "Installing update…" }
             if model.updates.isChecking { return "Checking for updates…" }
             if !model.scheduler.isBusy, model.scheduler.error != nil { return "Scheduled run needs attention" }
-            return model.scheduler.isBusy ? "Updating apps…" : "Engine ready"
+            return model.scheduler.isBusy ? "Scheduled updates…" : "Engine ready"
         case .loading: return "Starting engine…"
         }
     }

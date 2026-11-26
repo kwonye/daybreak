@@ -23,7 +23,8 @@ public struct UpdateCheckCache: Codable, Sendable {
         let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         return inventory.map { item in
             guard item.status == .readyToCheck, let cached = byID[item.id],
-                  cached.version == item.installedVersion, cached.repository == item.repository?.name else { return item }
+                  cached.version == item.installedVersion, cached.repository == item.repository?.name,
+                  cached.brewPackageID == item.brewPackage?.id else { return item }
             return cached.restore(into: item)
         }
     }
@@ -33,6 +34,7 @@ public struct UpdateCheckCache: Codable, Sendable {
         let id: String
         let version: String
         let repository: String?
+        let brewPackageID: String?
         let status: UpdateItem.Status
         let offeredVersion: String
         let detail: String
@@ -42,6 +44,7 @@ public struct UpdateCheckCache: Codable, Sendable {
             id = item.id
             version = item.installedVersion
             repository = item.repository?.name
+            brewPackageID = item.brewPackage?.id
             status = item.status
             offeredVersion = item.offeredVersion
             detail = item.detail
@@ -61,7 +64,7 @@ public struct UpdateCheckCache: Codable, Sendable {
             switch action {
             case .original: break
             case .none: result.action = nil
-            case .install: result.action = item.path == nil ? item.action : .install
+            case .install: result.action = item.path != nil || item.brewCanUpgrade ? .install : item.action
             case .openApp: result.action = item.path == nil ? item.action : .openApp
             }
             return result

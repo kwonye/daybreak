@@ -1,6 +1,14 @@
 import Foundation
 
 struct AppOutcome {
+    enum Phase {
+        case preparing, installing, verifying, reopening
+    }
+
+    var phase: Phase = .preparing
+    var needsApp = false
+    var wasCancelled = false
+
     let bundleID: String
     let name: String
     let path: String
@@ -27,6 +35,26 @@ struct AppOutcome {
         originalPIDs = app.pids
         originalLaunches = app.processes.map(\.launched)
         isProtected = app.isProtected
+        self.status = status
+        self.detail = detail
+    }
+
+    init(package: BrewPackage?, before: String = "", status: ResultStatus = .planned, detail: String = "") {
+        self.init(name: package?.name ?? "Homebrew", bundleID: package?.id ?? "homebrew", before: before,
+                  backend: "homebrew", status: status, detail: detail)
+    }
+
+    init(name: String, bundleID: String, before: String = "", backend: String = "",
+         status: ResultStatus, detail: String) {
+        self.bundleID = bundleID
+        self.name = name
+        path = ""
+        self.before = before
+        beforeBuild = ""
+        originalPIDs = []
+        originalLaunches = []
+        isProtected = false
+        self.backend = backend
         self.status = status
         self.detail = detail
     }
@@ -125,12 +153,15 @@ struct UpdateCoordinator {
             recoveryNeeded = true
             if let signer {
                 installStarted = true
+                result.phase = .installing
                 if let outcome = try backend.apply(app) {
                     result.updateOutcome = outcome.outcome
                     result.detail = outcome.detail
                 }
+                result.phase = .verifying
                 try platform.checkSignature(app, expectedTeam: signer)
             }
+            result.phase = .reopening
             if try platform.current(app).contains(where: { app.pids.contains($0.pid) }), try !platform.quit(app) {
                 result.status = .deferred
                 result.detail = "Update attempted but original process has not exited"
@@ -159,6 +190,14 @@ struct UpdateCoordinator {
                 result.detail = "Updater completed; installed version unchanged. Not proof of latest available release"
             }
             return result
+        } catch is CancellationError {
+            result.status = .deferred
+            result.wasCancelled = true
+            result.detail = "Update authorization was cancelled."
+        } catch is UpdateRequiresApp {
+            result.status = .deferred
+            result.needsApp = true
+            result.detail = UpdateRequiresApp().localizedDescription
         } catch let timeout as UpdaterTimeout {
             result.status = .uncertain
             result.detail = timeout.localizedDescription

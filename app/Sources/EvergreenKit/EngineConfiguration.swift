@@ -8,6 +8,7 @@ struct EngineConfiguration: Sendable {
     let cadence: ScheduleCadence
     let weekday: ScheduleWeekday
     let automaticRuns: Bool
+    let scheduleScope: ScheduleScope
     let quitTimeout: TimeInterval
     let restartCurrent: Bool
     let restartUnmanaged: Bool
@@ -55,6 +56,7 @@ struct EngineConfiguration: Sendable {
         cadence = schedule.cadence
         weekday = schedule.weekday
         automaticRuns = schedule.automaticRuns
+        scheduleScope = schedule.scheduleScope
         self.timeZone = timeZone
         timeZoneID = zone
         if let value = object["sparkle_cli"], value.stringValue == nil {

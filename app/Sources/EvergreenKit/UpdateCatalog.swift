@@ -11,7 +11,7 @@ public struct UpdateItem: Identifiable, Sendable, Equatable {
 
         public var title: String {
             switch self {
-            case .install: "Update…"
+            case .install: "Update"
             case .openApp: "Open App"
             case .openSystemSettings, .openStore, .openLink: "Open Updater"
             case .openRelease: "View Release"
@@ -22,21 +22,31 @@ public struct UpdateItem: Identifiable, Sendable, Equatable {
     public let name: String
     public let bundleID: String?
     public let path: String?
-    public var id: String { path ?? "macos" }
+    public internal(set) var brewPackage: BrewPackage? = nil
+    var brewCanUpgrade = false
+    public var id: String { path ?? brewPackage?.id ?? "macos" }
     public let installedVersion: String
-    public let isRunning: Bool
+    public internal(set) var isRunning: Bool
     public let isMacAppStoreApp: Bool
-    public let repository: ReleaseRepository?
+    public internal(set) var repository: ReleaseRepository?
     public internal(set) var status: Status
     public internal(set) var action: Action?
     public internal(set) var detail = ""
     public internal(set) var offeredVersion = ""
+
+    public func withRunningStatus(_ isRunning: Bool) -> Self {
+        var item = self
+        item.isRunning = isRunning
+        return item
+    }
 }
 
 struct UpdateCatalog: Sendable {
     private enum Route: Sendable {
         case backend(UpdateBackend)
         case system, store, app, publicCatalog, github(ReleaseRepository)
+        case electron(ElectronUpdateFeed)
+        case vendor(VendorUpdateFeed)
         case microsoft(String)
     }
 
@@ -44,19 +54,26 @@ struct UpdateCatalog: Sendable {
     private let platform: MacApplications
     private let process: UpdaterProcess
     private let registry: BackendRegistry
+    private var brewPackages: BrewPackages? { registry.brew.map { BrewPackages(executable: $0, process: process) } }
     private let repositories: [String: JSONValue]
+    private let electronFeeds: [String: JSONValue]
     private let state: NativeState
 
-    init(configURL: URL, stateDirectory: URL, process: UpdaterProcess = .forGUI()) throws {
+    init(configURL: URL?, stateDirectory: URL, process: UpdaterProcess = .forGUI(), skip: [String] = []) throws {
         self.process = process
-        config = try EngineConfiguration(url: configURL)
+        config = try EngineConfiguration(url: configURL, skip: skip)
         registry = BackendRegistry(process: process, config: config, includeBundledSparkle: true)
         platform = MacApplications(process: process, quitTimeout: config.quitTimeout)
-        let document = try ConfigStore(url: configURL).load()
-        if case .object(let mappings) = document.root["release_repositories"] {
+        let document = try configURL.map { try ConfigStore(url: $0).load() }
+        if case .object(let mappings) = document?.root["release_repositories"] {
             repositories = mappings
         } else {
             repositories = [:]
+        }
+        if case .object(let mappings) = document?.root["electron_update_feeds"] {
+            electronFeeds = mappings
+        } else {
+            electronFeeds = [:]
         }
         state = NativeState(directory: stateDirectory)
     }
@@ -112,6 +129,15 @@ struct UpdateCatalog: Sendable {
         let route = try scopedBackend(for: app)
         guard case .app = route else { return route }
         if let probe = registry.catalogProbe(for: app) { return .backend(probe) }
+        if let override = electronFeeds[app.bundleID] {
+            guard let url = override.stringValue, let feed = ElectronUpdateFeed(app: app, manifestURL: url) else { return .app }
+            return .electron(feed)
+        }
+        if let feed = ElectronUpdateFeed(app: app) { return .electron(feed) }
+        if let feed = VendorUpdateFeed(bundleID: app.bundleID) { return .vendor(feed) }
+        if app.bundleID == "net.mullvad.vpn", let repository = ReleaseRepository("mullvad/mullvadvpn-app") {
+            return .github(repository)
+        }
         return .publicCatalog
     }
 
@@ -131,6 +157,9 @@ struct UpdateCatalog: Sendable {
                               isRunning: !app.processes.isEmpty, isMacAppStoreApp: app.metadata.hints.contains("app-store"),
                               repository: repository(for: app),
                               status: .readyToCheck, action: nil)
+        if let name = registry.casks[app.path], !item.isMacAppStoreApp {
+            item.brewPackage = BrewPackage(name: name, kind: .cask)
+        }
         if config.whitelisted(app.bundleID) {
             item.status = .excluded
             item.detail = "Excluded by your whitelist."
@@ -148,11 +177,12 @@ struct UpdateCatalog: Sendable {
         case .app:
             item.status = .checkInApp
             item.action = .openApp
-        case .publicCatalog:
+        case .publicCatalog, .electron, .vendor:
             item.action = .openApp
         case .store:
             item.action = .openStore
         case .github(let repository):
+            item.repository = repository
             item.action = .openRelease(repository.releasesURL)
         case .backend(let backend) where backend.kind == .google:
             item.action = .openLink(URL(string: "chrome://settings/help")!)
@@ -163,32 +193,98 @@ struct UpdateCatalog: Sendable {
 
     func inventory() throws -> [UpdateItem] {
         let microsoft = microsoftApps()
-        return [system] + (try platform.installedApps().map { item(for: $0, microsoft: microsoft).0 })
+        let apps = try platform.installedApps().map { item(for: $0, microsoft: microsoft).0 }
+        let matched = Set(apps.compactMap(\.brewPackage))
+        let packages = ((try? brewPackages?.installed()) ?? [:]).values.filter { !matched.contains($0.package) }
+        return [system] + apps + packages.sorted { ($0.package.name, $0.package.kind.rawValue) < ($1.package.name, $1.package.kind.rawValue) }
+            .map(packageItem)
+    }
+
+    func scheduledCheckItems(scope: ScheduleScope) throws -> [UpdateItem] {
+        let microsoft = microsoftApps()
+        let installed = try platform.installedApps()
+        let apps = installed.map { app in (app, item(for: app, microsoft: microsoft)) }
+        var rows = apps.compactMap { app, entry -> UpdateItem? in
+            let (row, route) = entry
+            if row.brewPackage != nil, scope != .apps, case .backend(let backend) = route, backend.kind == .homebrew {
+                return row
+            }
+            guard scope != .brew, row.brewPackage == nil, !row.isMacAppStoreApp else { return nil }
+            switch route {
+            case .publicCatalog, .github, .electron, .vendor: return row
+            case .backend(let backend) where app.processes.isEmpty == false && backend.sparkleProbeFeed == nil:
+                return row
+            default: return nil
+            }
+        }
+        if scope != .apps, let brew = brewPackages {
+            let matched = Set(apps.compactMap { $0.1.0.brewPackage })
+            rows += try brew.installed().values.filter { !matched.contains($0.package) }.map(packageItem)
+        }
+        return rows
     }
 
     func install(_ target: UpdateItem) async throws -> UpdateItem {
-        guard geteuid() != 0, target.action == .install, let path = target.path else {
+        guard geteuid() != 0, target.action == .install else {
             throw EngineFailure("This update needs to be opened in its updater.")
         }
+        if target.path == nil, let package = target.brewPackage {
+            return try await state.withAsyncLock { try installPackage(package, target: target) }
+        }
+        guard let path = target.path else { throw EngineFailure("This update needs to be opened in its updater.") }
         return try await state.withAsyncLock {
             let microsoft = microsoftApps()
             guard let discovered = try platform.installedApps().first(where: { $0.path == path && $0.bundleID == target.bundleID }),
                   !discovered.isProtected, !config.whitelisted(discovered.bundleID), target.isRunning == !discovered.processes.isEmpty,
                   (discovered.metadata.version.isEmpty ? discovered.metadata.build : discovered.metadata.version) == target.installedVersion
             else { throw EngineFailure("This app changed. Check for updates again.") }
-            let metadata = try BundleMetadata.read(path, observed: discovered.processes.map(\.executable))
-            guard !metadata.fingerprint.isEmpty, metadata.version == discovered.metadata.version,
-                  metadata.build == discovered.metadata.build else {
-                throw EngineFailure("Evergreen couldn’t verify this installed copy. Open the app to check.")
-            }
-            let app = ManagedApp(bundleID: discovered.bundleID, name: discovered.name, path: path,
-                                 processes: discovered.processes, metadata: metadata, stale: false)
+            let app = try fingerprinted(discovered)
             let route = try route(for: app, microsoft: microsoft)
             if case .store = route { return try await installStoreApp(app, target: target) }
             let backend: UpdateBackend
             let check: UpdateCheck
+            var stagedRelease: StagedRelease?
+            defer { stagedRelease?.cleanUp() }
             switch route {
-            case .backend(let adapter) where adapter.kind != .restart && adapter.kind != .appStore && adapter.sparkleProbeFeed == nil:
+            case .publicCatalog, .github, .electron, .vendor:
+                guard target.status == .newerRelease || target.status == .available else {
+                    throw EngineFailure("This app’s update action changed. Check again.")
+                }
+                var manual = item(for: app, microsoft: microsoft).0
+                manual.status = target.status
+                manual.offeredVersion = target.offeredVersion
+                let release: PublishedRelease?
+                switch route {
+                case .github(let repository):
+                    manual.detail = "View the release to update this app."
+                    release = try await repository.latestRelease()
+                case .electron(let feed):
+                    manual.detail = "Open the app to finish updating."
+                    release = try await feed.check()
+                case .vendor(let feed):
+                    manual.detail = "Open the app to finish updating."
+                    release = try await feed.release(for: app)
+                default:
+                    manual.detail = "Open the app to check for updates."
+                    guard let catalog = await HomebrewCatalog.fetch() else {
+                        throw EngineFailure("Couldn’t confirm the release. Try again.")
+                    }
+                    release = catalog.newerRelease(
+                        bundleID: app.bundleID, appPath: app.path, installed: target.installedVersion
+                    )
+                }
+                guard let release, release.version == target.offeredVersion else { return manual }
+                do {
+                    guard let staged = try await prepareRelease(release, for: app) else { return manual }
+                    stagedRelease = staged
+                } catch is UpdateRequiresApp {
+                    manual.detail = "Evergreen couldn’t verify this update. " + manual.detail
+                    return manual
+                }
+                backend = UpdateBackend(kind: .release, process: process, stagedRelease: stagedRelease)
+                check = try backend.check(app)
+            case .backend(var adapter) where adapter.kind != .restart && adapter.kind != .appStore && adapter.sparkleProbeFeed == nil:
+                adapter.interactiveInstallation = true
                 backend = adapter
                 check = try adapter.check(app, interactiveCatalog: true)
             case .microsoft(let id):
@@ -217,20 +313,21 @@ struct UpdateCatalog: Sendable {
             }
             guard check.state == .available else { throw EngineFailure("Couldn’t confirm an update.") }
             let date = Date()
-            let outcome: AppOutcome
-            if target.isRunning {
-                let coordinator = UpdateCoordinator(platform: platform, config: config, backend: { _ in backend })
-                outcome = coordinator.handle(app, apply: true, revalidateSelection: true, confirmedUpdate: check)
-            } else {
-                outcome = try installClosed(app, using: backend, check: check)
-            }
+            let outcome = try applyConfirmed(app, using: backend, check: check)
             try state.save(NativeState.json([
                 "started_at": ISO8601DateFormatter().string(from: date), "apply": true,
                 "timezone": config.timeZoneID, "results": [outcome.row],
             ]), at: date)
+            if outcome.wasCancelled { throw CancellationError() }
+            if outcome.needsApp {
+                result.action = .openApp
+                result.detail = UpdateRequiresApp().localizedDescription
+                return result
+            }
             switch outcome.status {
             case .updated, .updatedAndRelaunched, .unchanged, .checkedAndRelaunched, .current:
                 result = UpdateItem(name: target.name, bundleID: target.bundleID, path: target.path,
+                                    brewPackage: target.brewPackage,
                                     installedVersion: outcome.after.isEmpty ? target.installedVersion : outcome.after,
                                     isRunning: target.isRunning, isMacAppStoreApp: target.isMacAppStoreApp,
                                     repository: target.repository,
@@ -243,10 +340,256 @@ struct UpdateCatalog: Sendable {
                 }
                 return result
             default:
-                throw EngineFailure(outcome.status == .deferred
-                                    ? "The app couldn’t close. Save your work and try again."
-                                    : "Evergreen couldn’t verify the update. See History for details.")
+                throw EngineFailure(Self.installFailureMessage(for: outcome))
             }
+        }
+    }
+
+    private func fingerprinted(_ app: ManagedApp) throws -> ManagedApp {
+        let metadata = try BundleMetadata.read(app.path, observed: app.processes.map(\.executable))
+        guard !metadata.fingerprint.isEmpty, metadata.version == app.metadata.version, metadata.build == app.metadata.build else {
+            throw EngineFailure("Evergreen couldn’t verify this installed copy. Open the app to check.")
+        }
+        return ManagedApp(bundleID: app.bundleID, name: app.name, path: app.path,
+                          processes: app.processes, metadata: metadata, stale: false)
+    }
+
+    private func prepareRelease(_ release: PublishedRelease, for app: ManagedApp) async throws -> StagedRelease? {
+        let installer = ReleaseInstaller(platform: platform, process: process)
+        guard ReleaseRepository.compare(release.version, installed: app.metadata.version) == .orderedDescending,
+              let artifact = release.artifact, let team = installer.publisher(of: app) else { return nil }
+        return try await installer.prepare(artifact, for: app, version: release.version, team: team)
+    }
+
+    private func applyConfirmed(_ app: ManagedApp, using backend: UpdateBackend, check: UpdateCheck) throws -> AppOutcome {
+        if app.processes.isEmpty { return try installClosed(app, using: backend, check: check) }
+        return UpdateCoordinator(platform: platform, config: config, backend: { _ in backend })
+            .handle(app, apply: true, revalidateSelection: true, confirmedUpdate: check)
+    }
+
+    /// The scheduler holds the run lock. Every downloaded release uses the same installer as the Apps pane.
+    func scheduledReleases(_ installed: [ManagedApp], only: Set<String>) async throws -> [AppOutcome] {
+        let eligible = installed.filter { app in
+            (only.isEmpty || only.contains(app.bundleID)) && !app.isProtected && !config.whitelisted(app.bundleID) &&
+                registry.casks[app.path] == nil && !app.metadata.hints.contains("app-store") &&
+                canonicalPath(app.path) == app.path
+        }
+        guard !eligible.isEmpty else { return [] }
+        let microsoft = microsoftApps()
+        let releases: [(app: ManagedApp, route: Route)] = eligible.compactMap {
+            guard let route = try? route(for: $0, microsoft: microsoft) else { return nil }
+            switch route {
+            case .publicCatalog, .github, .electron, .vendor: return ($0, route)
+            default: return nil
+            }
+        }
+        let publicCatalog: HomebrewCatalog?
+        if releases.contains(where: { if case .publicCatalog = $0.route { true } else { false } }) {
+            publicCatalog = await HomebrewCatalog.fetch()
+        } else {
+            publicCatalog = nil
+        }
+        var outcomes: [AppOutcome] = []
+        for (app, route) in releases {
+            try Task.checkCancellation()
+            do {
+                let release: PublishedRelease?
+                switch route {
+                case .github(let repository): release = try await repository.latestRelease()
+                case .electron(let feed): release = try await feed.check()
+                case .vendor(let feed): release = try await feed.release(for: app)
+                default:
+                    release = publicCatalog?.newerRelease(bundleID: app.bundleID, appPath: app.path, installed: app.metadata.version)
+                }
+                guard let release, ReleaseRepository.compare(release.version, installed: app.metadata.version) == .orderedDescending
+                else { continue }
+                let current = try fingerprinted(app)
+                guard let staged = try await prepareRelease(release, for: current) else {
+                    throw UpdateRequiresApp()
+                }
+                defer { staged.cleanUp() }
+                let backend = UpdateBackend(kind: .release, process: process, stagedRelease: staged)
+                outcomes.append(try applyConfirmed(current, using: backend, check: backend.check(current)))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch is UpdateRequiresApp {
+                outcomes.append(AppOutcome(app: app, status: .unsupported, detail: "A newer release needs to be installed manually."))
+            } catch {
+                outcomes.append(AppOutcome(app: app, status: .failed, detail: error.localizedDescription))
+            }
+        }
+        return outcomes
+    }
+
+    private func packageItem(_ installed: BrewPackages.Installed) -> UpdateItem {
+        UpdateItem(name: installed.package.name, bundleID: nil, path: nil, brewPackage: installed.package,
+                   brewCanUpgrade: installed.canUpgrade,
+                   installedVersion: installed.version, isRunning: false, isMacAppStoreApp: false,
+                   repository: nil, status: installed.pinned ? .excluded : .readyToCheck, action: nil,
+                   detail: installed.pinned ? "Pinned in Homebrew." : "")
+    }
+
+    private func packageResult(_ target: UpdateItem, offers: [String: BrewPackages.Offer]?,
+                               canUpgrade: Bool) -> UpdateItem {
+        var item = target
+        guard let package = item.brewPackage, let offers else {
+            item.status = .failed
+            item.action = nil
+            item.detail = "Couldn’t check Homebrew. Try again."
+            return item
+        }
+        if let offer = offers[package.offerID] {
+            let canInstall = canUpgrade && !["HEAD", "latest"].contains(offer.version)
+            item.status = offer.pinned ? .excluded : .available
+            item.offeredVersion = offer.version
+            item.action = !offer.pinned && canInstall ? .install : nil
+            item.detail = offer.pinned ? "Pinned in Homebrew." : canInstall ? "" : "Update this package in Terminal."
+        } else {
+            item.status = .current
+            item.action = nil
+            item.offeredVersion = ""
+            item.detail = ""
+        }
+        return item
+    }
+
+    private func installPackage(_ package: BrewPackage, target: UpdateItem) throws -> UpdateItem {
+        guard let brew = brewPackages, let before = try brew.installed()[package] else {
+            throw EngineFailure("This Homebrew package is no longer installed. Check for updates again.")
+        }
+        if before.pinned { return packageItem(before) }
+        let offers = try brew.outdated()
+        guard let offer = offers[package.offerID] else { return packageResult(packageItem(before), offers: offers, canUpgrade: false) }
+        guard before.canUpgrade, !offer.pinned, !["HEAD", "latest"].contains(offer.version), before.version == target.installedVersion,
+              offer.version == target.offeredVersion else {
+            throw EngineFailure("This Homebrew package changed. Check for updates again.")
+        }
+        try Task.checkCancellation()
+        let date = Date()
+        let (outcome, after) = upgradePackage(before, offer: offer, brew: brew)
+        try state.save(NativeState.json([
+            "started_at": ISO8601DateFormatter().string(from: date), "apply": true,
+            "timezone": config.timeZoneID, "results": [outcome.row],
+        ]), at: date)
+        guard let after else {
+            throw EngineFailure(outcome.status == .uncertain ? "The Homebrew upgrade timed out. Check its status before retrying."
+                                : "Couldn’t complete the Homebrew upgrade. See History for details.")
+        }
+        var result = packageItem(after)
+        result.status = .current
+        result.detail = "Update installed."
+        return result
+    }
+
+    private func upgradePackage(_ before: BrewPackages.Installed, offer: BrewPackages.Offer, brew: BrewPackages)
+        -> (AppOutcome, BrewPackages.Installed?) {
+        var outcome = AppOutcome(package: before.package, before: before.version)
+        do {
+            try brew.upgrade(before.package)
+            guard let after = try brew.installed()[before.package], after.versions != before.versions,
+                  after.versions.contains(offer.version) else {
+                throw EngineFailure("The installed package did not match the offered version.")
+            }
+            outcome.status = .updated
+            outcome.after = after.version
+            outcome.verification = "Homebrew reports the offered version installed."
+            return (outcome, after)
+        } catch {
+            outcome.status = error is UpdaterTimeout ? .uncertain : .failed
+            outcome.detail = error.localizedDescription
+            return (outcome, nil)
+        }
+    }
+
+    /// Called under the same run lock as the scheduled app updates.
+    func scheduledBrew(apply: Bool, only: Set<String>) throws -> [AppOutcome] {
+        guard let brew = brewPackages else {
+            return [AppOutcome(package: nil, status: .failed, detail: "Homebrew is unavailable.")]
+        }
+        let installed = try brew.installed()
+        let offers = try brew.outdated()
+        let apps = registry.casks.isEmpty ? [] : try platform.installedApps()
+        let byCask = Dictionary(grouping: apps.compactMap { app in
+            registry.casks[app.path].map { (name: $0, app: app) }
+        }, by: \.name)
+        var results: [AppOutcome] = []
+        for before in installed.values.sorted(by: { $0.package.id < $1.package.id }) {
+            let package = before.package
+            guard let offer = offers[package.offerID] else { continue }
+            let caskApps = package.kind == .cask ? byCask[package.name] ?? [] : []
+            if !only.isEmpty && !caskApps.contains(where: { only.contains($0.app.bundleID) }) { continue }
+            let outcome: AppOutcome
+            if before.pinned || offer.pinned {
+                outcome = AppOutcome(package: package, before: before.version, status: .excluded, detail: "Pinned in Homebrew.")
+            } else if caskApps.count == 1, let app = caskApps.first?.app {
+                outcome = scheduledCask(app, apply: apply)
+            } else {
+                outcome = scheduledPackage(before, offer: offer, brew: brew, apply: apply)
+            }
+            results.append(outcome)
+            if outcome.status == .uncertain { break }
+        }
+        return results
+    }
+
+    private func scheduledPackage(_ before: BrewPackages.Installed, offer: BrewPackages.Offer,
+                                  brew: BrewPackages, apply: Bool) -> AppOutcome {
+        let package = before.package
+        guard before.canUpgrade, !["HEAD", "latest"].contains(offer.version) else {
+            return AppOutcome(package: package, before: before.version, status: .unsupported, detail: "Open Terminal to update this package.")
+        }
+        guard apply else {
+            return AppOutcome(package: package, before: before.version, detail: "Update to \(offer.version).")
+        }
+        do {
+            guard let current = try brew.installed()[package], current.canUpgrade, !current.pinned,
+                  let currentOffer = try brew.outdated()[package.offerID], !currentOffer.pinned else {
+                return AppOutcome(package: package, before: before.version, status: .skipped, detail: "The update is no longer eligible.")
+            }
+            guard current.version == before.version, currentOffer.version == offer.version else {
+                return AppOutcome(package: package, before: before.version, status: .skipped, detail: "The offered or installed version changed.")
+            }
+            return upgradePackage(current, offer: currentOffer, brew: brew).0
+        } catch {
+            return AppOutcome(package: package, before: before.version, status: .failed, detail: error.localizedDescription)
+        }
+    }
+
+    private func scheduledCask(_ app: ManagedApp, apply: Bool) -> AppOutcome {
+        if config.whitelisted(app.bundleID) {
+            return AppOutcome(app: app, status: .excluded, detail: "Whitelisted by configuration.")
+        }
+        do {
+            guard case .backend(var backend) = try scopedBackend(for: app), backend.kind == .homebrew else {
+                return AppOutcome(app: app, status: .unsupported, detail: "This cask needs to be updated manually.")
+            }
+            guard apply else { return AppOutcome(app: app, detail: "Install the available update.") }
+            backend.interactiveInstallation = true
+            let updater = backend
+            let check = try updater.check(app)
+            guard check.state == .available else { return AppOutcome(app: app, status: .current) }
+            let metadata = try BundleMetadata.read(app.path, observed: app.processes.map(\.executable))
+            guard !metadata.fingerprint.isEmpty, metadata.version == app.metadata.version, metadata.build == app.metadata.build else {
+                throw EngineFailure("The installed app changed before the update.")
+            }
+            let current = ManagedApp(bundleID: app.bundleID, name: app.name, path: app.path,
+                                     processes: app.processes, metadata: metadata, stale: false)
+            if current.processes.isEmpty { return try installClosed(current, using: updater, check: check) }
+            return UpdateCoordinator(platform: platform, config: config, backend: { _ in updater })
+                .handle(current, apply: true, revalidateSelection: true, confirmedUpdate: check)
+        } catch {
+            return AppOutcome(app: app, status: .failed, detail: error.localizedDescription)
+        }
+    }
+
+    static func installFailureMessage(for outcome: AppOutcome) -> String {
+        if outcome.status == .deferred { return "The app couldn’t close. Save your work and try again." }
+        if outcome.status == .uncertain { return "The update took too long. Check the app before trying again." }
+        switch outcome.phase {
+        case .preparing: return "Evergreen couldn’t prepare this app for the update. See History for details."
+        case .installing: return "The update couldn’t finish installing. See History for details."
+        case .verifying: return "Evergreen couldn’t verify the installed copy. See History for details."
+        case .reopening: return "Evergreen couldn’t verify the app reopened after the update. See History for details."
         }
     }
 
@@ -328,7 +671,9 @@ struct UpdateCatalog: Sendable {
             let before = app.metadata
             let signer = try platform.signer(app)
             guard try platform.current(app).isEmpty else { throw EngineFailure("This app opened. Check for updates again.") }
+            outcome.phase = .installing
             let result = try backend.apply(app)
+            outcome.phase = .verifying
             try platform.checkSignature(app, expectedTeam: signer)
             let after = try BundleMetadata.read(app.path, observed: [])
             outcome.after = after.version
@@ -348,6 +693,14 @@ struct UpdateCatalog: Sendable {
                 outcome.detail = changed ? (appIsClosed ? "Installed update. App was left closed." : "Installed update.")
                     : "Updater finished. Version unchanged."
             }
+        } catch is CancellationError {
+            outcome.status = .deferred
+            outcome.wasCancelled = true
+            outcome.detail = "Update authorization was cancelled."
+        } catch is UpdateRequiresApp {
+            outcome.status = .deferred
+            outcome.needsApp = true
+            outcome.detail = UpdateRequiresApp().localizedDescription
         } catch let error as UpdaterTimeout {
             outcome.status = .uncertain
             outcome.detail = error.localizedDescription
@@ -375,10 +728,13 @@ struct UpdateCatalog: Sendable {
         let store = stores.isEmpty ? nil : Task.detached(priority: .utility) { await storeResults(stores, apps: apps) }
         let microsoftAvailable = apps.values.contains { microsoft[$0.path] != nil }
             ? Task.detached(priority: .utility) { microsoftUpdates() } : nil
+        let brewOffers = items.contains { $0.brewPackage != nil }
+            ? Task.detached(priority: .utility) { try? brewPackages?.outdated() } : nil
         defer {
             store?.cancel()
             microsoftAvailable?.cancel()
             publicCatalog?.cancel()
+            brewOffers?.cancel()
         }
         // Use bounded parallelism. Each app can run an independent network probe.
         for offset in stride(from: 0, to: items.count, by: 6) {
@@ -389,7 +745,12 @@ struct UpdateCatalog: Sendable {
                     if let path = target.path, let entry = discovered[path], target.bundleID == entry.app.bundleID {
                         group.addTask {
                             try await self.check(entry.item, app: entry.app, route: entry.route, store: store,
-                                                 microsoft: microsoftAvailable, publicCatalog: publicCatalog)
+                                                 microsoft: microsoftAvailable, publicCatalog: publicCatalog, brewOffers: brewOffers)
+                        }
+                    } else if target.path == nil, target.brewPackage != nil {
+                        group.addTask {
+                            guard target.status != .excluded else { return target }
+                            return self.packageResult(target, offers: await brewOffers?.value, canUpgrade: target.brewCanUpgrade)
                         }
                     } else if target.path == nil {
                         group.addTask { self.checkSystem() }
@@ -408,23 +769,47 @@ struct UpdateCatalog: Sendable {
 
     private func check(_ item: UpdateItem, app: ManagedApp, route: Route, store: Task<[String: StoreResult], Never>?,
                        microsoft: Task<[String: String]?, Never>?,
-                       publicCatalog: Task<HomebrewCatalog?, Never>?) async throws -> UpdateItem {
+                       publicCatalog: Task<HomebrewCatalog?, Never>?,
+                       brewOffers: Task<[String: BrewPackages.Offer]?, Never>?) async throws -> UpdateItem {
         guard item.status == .readyToCheck else { return item }
         var item = item
         do {
             switch route {
             case .app, .system: break
+            case .electron, .vendor:
+                let published: PublishedRelease?
+                if case .electron(let feed) = route { published = try await feed.check() }
+                else if case .vendor(let feed) = route { published = try await feed.release(for: app) }
+                else { published = nil }
+                guard let release = published,
+                      let comparison = ReleaseRepository.compare(release.version, installed: item.installedVersion) else {
+                    item.status = .checkInApp
+                    break
+                }
+                if comparison == .orderedDescending {
+                    if case .vendor(.firefox) = route { item.status = .newerRelease }
+                    else { item.status = .available }
+                    item.offeredVersion = release.version
+                    item.detail = "Open the app to finish updating."
+                    offerReleaseInstall(release, for: app, item: &item)
+                } else {
+                    item.status = .current
+                    item.action = nil
+                }
             case .publicCatalog:
-                if let version = await publicCatalog?.value?.newerVersion(bundleID: app.bundleID, appPath: app.path,
+                if let release = await publicCatalog?.value?.newerRelease(bundleID: app.bundleID, appPath: app.path,
                                                                           installed: item.installedVersion) {
                     item.status = .newerRelease
-                    item.offeredVersion = version
+                    item.offeredVersion = release.version
                     item.detail = "Open the app to check whether this version is available."
+                    offerReleaseInstall(release, for: app, item: &item)
                 } else {
                     item.status = .checkInApp
                 }
             case .backend(let backend):
                 switch backend.kind {
+                case .homebrew:
+                    return packageResult(item, offers: await brewOffers?.value, canUpgrade: true)
                 case .google:
                     _ = try backend.check(app) // Exact registration is required by the engine.
                     item.status = .openUpdater
@@ -456,10 +841,10 @@ struct UpdateCatalog: Sendable {
                 }
             case .store:
                 switch await store?.value[app.path] {
-                case .available(let version):
+                case .available(let version, let direct):
                     item.status = .available
                     item.offeredVersion = version
-                    if canInstallStoreApp(app) { item.action = .install }
+                    if direct && canInstallStoreApp(app) { item.action = .install }
                 case .current:
                     item.status = .current
                 case nil:
@@ -476,14 +861,15 @@ struct UpdateCatalog: Sendable {
                 item.offeredVersion = microsoft[id] ?? ""
                 item.action = item.status == .available ? .install : nil
             case .github(let repository):
-                guard let tag = try await repository.latestTag() else {
+                guard let release = try await repository.latestRelease() else {
                     item.status = .inconclusive
                     item.detail = "No public stable release was found."
                     break
                 }
-                item.offeredVersion = tag
-                if let comparison = ReleaseRepository.compare(tag, installed: item.installedVersion) {
+                item.offeredVersion = release.version
+                if let comparison = ReleaseRepository.compare(release.version, installed: item.installedVersion) {
                     item.status = comparison == .orderedDescending ? .newerRelease : .current
+                    if item.status == .newerRelease { offerReleaseInstall(release, for: app, item: &item) }
                 } else {
                     item.status = .inconclusive
                     item.detail = "The published version uses a different format."
@@ -497,6 +883,12 @@ struct UpdateCatalog: Sendable {
             if item.action == nil { item.action = .openApp }
         }
         return item
+    }
+
+    private func offerReleaseInstall(_ release: PublishedRelease, for app: ManagedApp, item: inout UpdateItem) {
+        guard release.artifact != nil, ReleaseInstaller(platform: platform, process: process).publisher(of: app) != nil else { return }
+        item.action = .install
+        item.detail = ""
     }
 
     private func checkSystem() -> UpdateItem {
@@ -537,11 +929,11 @@ struct UpdateCatalog: Sendable {
         return nil
     }
 
-    private enum StoreResult: Sendable { case current, available(String) }
+    private enum StoreResult: Sendable { case current, available(String, direct: Bool) }
 
     private func storeResults(_ items: [UpdateItem], apps: [String: ManagedApp]) async -> [String: StoreResult] {
         let local = items.compactMap { item -> (ManagedApp, String)? in
-            guard let path = item.path, let app = apps[path], let id = storeID(for: app) else { return nil }
+            guard let path = item.path, let app = apps[path], let id = storeListingID(for: app) else { return nil }
             return (app, id)
         }
         guard !local.isEmpty else { return [:] }
@@ -551,18 +943,37 @@ struct UpdateCatalog: Sendable {
             if let listing = listings[id],
                let comparison = listing.compareMacVersion(bundleID: app.bundleID, installed: app.metadata.version,
                                                            macOS: Self.installedOSVersion) {
-                if comparison == .orderedDescending { results[app.path] = .available(listing.version) }
-                if comparison == .orderedSame { results[app.path] = .current }
+                if comparison == .orderedDescending { results[app.path] = .available(listing.version, direct: true) }
+                else { results[app.path] = .current }
+            }
+        }
+        let unresolved = local.filter { results[$0.0.path] == nil }
+        for offset in stride(from: 0, to: unresolved.count, by: 4) {
+            if Task.isCancelled { break }
+            await withTaskGroup(of: (String, StoreResult?).self) { group in
+                for (app, id) in unresolved[offset..<min(offset + 4, unresolved.count)] {
+                    group.addTask {
+                        guard let version = await AppStoreCatalog.macStorefrontVersion(id: id),
+                              let comparison = ReleaseRepository.compare(version, installed: app.metadata.version)
+                        else { return (app.path, nil) }
+                        return (app.path, comparison == .orderedDescending ? .available(version, direct: false) : .current)
+                    }
+                }
+                for await (path, result) in group { results[path] = result }
             }
         }
         return results
     }
 
-    private func storeID(for app: ManagedApp) -> String? {
+    private func storeListingID(for app: ManagedApp) -> String? {
         guard let output = try? process.checked(["/usr/bin/mdls", "-raw", "-name", "kMDItemAppStoreAdamID", app.path], 10)
         else { return nil }
         let id = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard id.wholeMatch(of: /[0-9]+/) != nil else { return nil }
+        return id.wholeMatch(of: /[0-9]+/) != nil ? id : nil
+    }
+
+    private func storeID(for app: ManagedApp) -> String? {
+        guard let id = storeListingID(for: app) else { return nil }
         let aliases = (try? process.checked(["/usr/bin/mdfind", "kMDItemAppStoreAdamID == \(id)"], 10)) ?? ""
         let paths = Set(aliases.split(whereSeparator: \.isNewline).compactMap { canonicalPath(String($0)) })
         return paths == [app.path] ? id : nil

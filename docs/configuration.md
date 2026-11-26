@@ -10,6 +10,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
   "schedule_cadence": "daily",
   "schedule_weekday": 2,
   "automatic_runs": false,
+  "schedule_scope": "apps",
   "quit_timeout_seconds": 60,
   "restart_current": true,
   "restart_unmanaged": false,
@@ -48,17 +49,37 @@ Chrome auto-discovers the existing user updater under `~/Library/Application Sup
 
 Explicit backend names: `sparkle`, `homebrew`, `app-store`, `docker`, `google`, `command`, `restart-only`. Homebrew's optional `cask` must match the already-managed path; it cannot adopt an unmanaged app.
 
-## Restart schedule
+## Update schedule
 
-The due gate uses the configured wall-clock `hour`, `minute`, and `timezone`. `schedule_cadence` accepts `daily`, `weekdays` (Monday through Friday), or `weekly`. For `weekly`, `schedule_weekday` uses 1 for Sunday through 7 for Saturday and defaults to Monday. Late invocations can run on the same eligible date.
+The due gate uses the configured wall-clock `hour`, `minute`, and `timezone`. `schedule_cadence` accepts `daily`, `weekdays` (Monday through Friday), or `weekly`. For `weekly`, `schedule_weekday` uses 1 for Sunday through 7 for Saturday and defaults to Monday.
 
-`automatic_runs` opts in to applying updates and restarting eligible running apps while the desktop app is running. CLI invocations using `--due` follow the same cadence regardless of this opt-in. Use the same state directory for both so the gate prevents duplicate runs.
+`automatic_runs` opts in to scheduled updates. `schedule_scope` accepts `apps` (the default), `brew`, or `both`. Apps covers eligible running apps and verified releases for installed apps, including closed apps. Brew covers eligible installed Homebrew formulae and casks. Evergreen shows the Brew scope choices when it finds the Homebrew CLI.
+
+In **Settings → Schedule**, enable **Run in background when Evergreen is closed** to register a macOS login-session agent. macOS may ask for approval in Login Items. The agent runs while the user is signed in, even after quitting Evergreen. Automatic runs start within 30 minutes of the scheduled time. After that, Evergreen checks for pending updates in the selected scope and offers **Run Updates Now** if it can apply any. Enable missed-run notifications to get the same action in Notification Center.
+
+CLI invocations using `--due` use the same scope and cadence regardless of the desktop opt-in. A late CLI invocation can run on the same eligible date. Use the same state directory so the CLI, app and background agent share the date gate.
+
+## Electron update feeds
+
+Evergreen reads public GitHub and generic HTTPS feeds from Electron apps’ bundled `app-update.yml`. It can install ZIPs and disk images when the feed identifies a compatible release and supplies a checksum.
+
+For an app that configures its updater at runtime, map its bundle ID to the exact HTTPS manifest URL in `electron_update_feeds`. This supports electron-builder YAML, including custom channel manifests, and Squirrel.Mac JSON entries that provide a release version and SHA-256 digest.
+
+```json
+{
+  "electron_update_feeds": {
+    "com.example.desktop": "https://updates.example.com/desktop/latest-mac.yml"
+  }
+}
+```
+
+Feeds that require app-specific authentication or a staged rollout remain available through the app’s own updater.
 
 ## Mac App Store
 
-The Updates pane checks the public App Store catalog directly. It shows the newest version the catalog can identify for the installed Mac app. What the App Store offers can also depend on the signed-in account and rollout.
+The Apps pane checks the public App Store catalog directly. It shows the newest version the catalog can identify for the installed Mac app. What the App Store offers can also depend on the signed-in account and rollout.
 
-`direct_app_store_updates` is off by default. It enables individually confirmed updates in the Updates pane for eligible signed copies in `/Applications`. It does not change Preview or scheduled runs. Evergreen uses the system's private commerce interfaces for downloads. If local installation is required, macOS can authorize a one-shot helper that verifies the replacement and its App Store receipt before installing it. Use the App Store for macOS versions or packages that the direct path cannot handle.
+`direct_app_store_updates` is off by default. It enables individually initiated updates in the Apps pane for eligible signed copies in `/Applications`. Evergreen uses the system's private commerce interfaces for downloads. If local installation is required, macOS can authorize a one-shot helper that verifies the replacement and its App Store receipt before installing it. Use the App Store for macOS versions or packages that the direct path cannot handle.
 
 ## Supported command adapter
 

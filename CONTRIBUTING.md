@@ -51,7 +51,7 @@ Run the first command for Swift changes. Tests cover failure handling, backend c
 | Docker Desktop | Native `docker desktop update --quiet`, fresh-process check, then engine health check | Explicit `allow_workload_interruption: true`. Containers, Kubernetes and VM workloads can stop. Docker's command has no stable machine-readable availability response |
 | Electron / Squirrel / unknown | Graceful restart to apply a vendor-staged update | No generic external update API. Latest-release availability is unknown unless a supported command adapter is configured |
 
-This table describes the running-app engine. The Updates pane also checks Apple’s public App Store catalog directly, and has a separate, opt-in install path. It checks ChatGPT’s public feed for the installed architecture. For other apps without a supported check, report **Newer release** only when the public Homebrew catalog uniquely matches both bundle ID and filename and lists a higher version. Otherwise keep the result under **Check manually**.
+The Apps pane also checks Apple’s public App Store catalog, ChatGPT’s feed for the installed architecture, vendor feeds, and GitHub releases. Electron apps can use a bundled or [configured HTTPS feed](docs/configuration.md#electron-update-feeds). For public Homebrew matches, require the bundle ID and filename to identify the installed app. Offer direct installation only when the release download and installed publisher can be verified.
 
 ## Safety and honest verification
 

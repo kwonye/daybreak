@@ -21,6 +21,8 @@ public struct RunOutcome: Sendable {
 
 /// Keeps blocking platform and updater work off the UI's main actor.
 public actor EngineClient {
+    public static var hasHomebrew: Bool { UpdaterProcess.forGUI().executable(named: "brew") != nil }
+
     public nonisolated let configURL: URL
     public nonisolated let stateDirectory: URL
 
@@ -30,11 +32,12 @@ public actor EngineClient {
     }
 
     private func invoke(_ command: NativeEngine.Command, apply: Bool = false, only: [String] = [],
-                        confirmed: [RunResult]? = nil, automatic: Bool = false) throws
+                        confirmed: [RunResult]? = nil, automatic: Bool = false, scheduledFor: Date? = nil) async throws
         -> (data: Data, exitCode: Int32) {
         do {
-            return try NativeEngine(configURL: configURL, stateDirectory: stateDirectory, process: .forGUI())
-                .execute(command, apply: apply, due: automatic, only: only, confirmed: confirmed, requireAutomaticRuns: automatic)
+            return try await NativeEngine(configURL: configURL, stateDirectory: stateDirectory, process: .forGUI())
+                .execute(command, apply: apply, due: automatic, only: only, confirmed: confirmed,
+                         requireAutomaticRuns: automatic, scheduledFor: scheduledFor)
         } catch {
             throw EngineError.failed(detail: error.localizedDescription)
         }
@@ -48,26 +51,26 @@ public actor EngineClient {
         }
     }
 
-    public func inventory() throws -> [InventoryApp] {
-        try decode([InventoryApp].self, from: invoke(.inventory).data, command: .inventory)
+    public func inventory() async throws -> [InventoryApp] {
+        try decode([InventoryApp].self, from: await invoke(.inventory).data, command: .inventory)
     }
 
     /// The caller obtains confirmation before passing apply: true.
-    public func run(apply: Bool, only: [String] = []) throws -> RunOutcome {
-        let result = try invoke(.run, apply: apply, only: only)
+    public func run(apply: Bool, only: [String] = []) async throws -> RunOutcome {
+        let result = try await invoke(.run, apply: apply, only: only)
         let report = try decode(RunReport.self, from: result.data, command: .run)
         return RunOutcome(report: report, exitCode: result.exitCode)
     }
 
     /// Applies only the selected app instances, rechecking their identities before any update.
-    public func apply(confirmed: [RunResult]) throws -> RunOutcome {
-        let result = try invoke(.run, apply: true, confirmed: confirmed)
+    public func apply(confirmed: [RunResult]) async throws -> RunOutcome {
+        let result = try await invoke(.run, apply: true, confirmed: confirmed)
         let report = try decode(RunReport.self, from: result.data, command: .run)
         return RunOutcome(report: report, exitCode: result.exitCode)
     }
 
-    public func status() throws -> RunReport {
-        try decode(RunReport.self, from: invoke(.status).data, command: .status)
+    public func status() async throws -> RunReport {
+        try decode(RunReport.self, from: await invoke(.status).data, command: .status)
     }
 
     public func automaticRunIsDue() throws -> Bool {
@@ -76,8 +79,8 @@ public actor EngineClient {
     }
 
     /// The engine rechecks the opt-in and uses the same run lock and date marker as the CLI.
-    public func runAutomatically() throws -> RunOutcome? {
-        let result = try invoke(.run, apply: true, automatic: true)
+    public func runAutomatically(scheduledFor: Date? = nil) async throws -> RunOutcome? {
+        let result = try await invoke(.run, apply: true, automatic: true, scheduledFor: scheduledFor)
         let report = try decode(RunReport.self, from: result.data, command: .run)
         return report.status == "not_due" ? nil : RunOutcome(report: report, exitCode: result.exitCode)
     }

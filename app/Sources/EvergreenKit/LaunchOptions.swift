@@ -1,9 +1,9 @@
 import Foundation
 
 /// Launch arguments used for screenshots/QA. None of them can apply updates:
-///   --pane updates|running|whitelist|history   initial sidebar item
+///   --pane updates|brew|whitelist|history      initial sidebar item
 ///   --appearance light|dark                force an appearance
-///   --settings [general|behavior]           open the Settings window on a tab
+///   --settings [general|behavior|schedule]  open the Settings window on a tab
 ///   --config PATH                         use a separate configuration file
 ///   --snapshot DIR                         render each pane of the app's own windows to PNGs
 ///                                          in DIR, then quit (in-process; not screen capture)

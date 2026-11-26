@@ -11,7 +11,8 @@ struct NativeEngine {
 
     func execute(_ command: Command, apply: Bool = false, due: Bool = false, only: [String] = [], skip: [String] = [],
                  confirmed: [RunResult]? = nil, requireAutomaticRuns: Bool = false,
-                 now: @escaping () -> Date = Date.init) throws -> (data: Data, exitCode: Int32) {
+                 scheduledFor: Date? = nil,
+                 now: @escaping () -> Date = Date.init) async throws -> (data: Data, exitCode: Int32) {
         let state = NativeState(directory: stateDirectory)
         if command == .status { return (try state.status(), 0) }
         if apply && geteuid() == 0 { throw EngineFailure("Run as the logged-in desktop user, never root") }
@@ -20,7 +21,7 @@ struct NativeEngine {
         if command == .inventory {
             return (try NativeState.json(platform.inventory().map { $0.inventoryRow(config: configURL == nil ? nil : config) }), 0)
         }
-        let run = {
+        let run = { () async throws -> (Data, Int32) in
             let date = now()
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -29,35 +30,70 @@ struct NativeEngine {
                 if requireAutomaticRuns && !config.automaticRuns {
                     return (try NativeState.json(["status": "not_due", "timezone": config.timeZoneID, "hour": config.hour]), Int32(0))
                 }
-                let gate = try state.due(at: date, config: config)
+                if let scheduledFor, try state.latestScheduleSlot(at: date, config: config) != scheduledFor {
+                    return (try NativeState.json(["status": "not_due"]), Int32(0))
+                }
+                let gate = try state.due(at: scheduledFor ?? date, config: config)
                 guard gate.isDue else {
                     return (try NativeState.json(["status": "not_due", "timezone": config.timeZoneID, "hour": config.hour]), Int32(0))
                 }
                 if apply { try state.consume(date: gate.localDate, startedAt: started) }
             }
 
-            let apps = try platform.inventory()
             let allowed = Set(only)
-            let registry = BackendRegistry(process: process, config: config)
-            let coordinator = UpdateCoordinator(platform: platform, config: config, backend: registry.backend)
-            let results: [AppOutcome]
-            if let confirmed {
-                let byIdentity = Dictionary(uniqueKeysWithValues: apps.map { ($0.identity, $0) })
-                results = confirmed.map { target in
-                    guard let app = byIdentity[ApplicationIdentity(bundleID: target.bundleID, path: target.path)],
-                          app.matchesPreview(target) else { return AppOutcome(skipping: target) }
-                    return coordinator.handle(app, apply: apply, revalidateSelection: true)
+            let scope: ScheduleScope = due ? config.scheduleScope : .apps
+            var results: [AppOutcome] = []
+            if scope != .brew {
+                do {
+                    results = try await appResults(platform: platform, config: config, apply: apply, due: due,
+                                                   only: allowed, skip: skip, confirmed: confirmed)
+                } catch where scope == .both {
+                    results = [AppOutcome(name: "Apps", bundleID: "apps", status: .failed, detail: error.localizedDescription)]
                 }
-            } else {
-                results = apps.filter { allowed.isEmpty || allowed.contains($0.bundleID) }
-                    .map { coordinator.handle($0, apply: apply) }
+            }
+            if scope != .apps {
+                do {
+                    let catalog = try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory, process: process, skip: skip)
+                    results += try catalog.scheduledBrew(apply: apply, only: allowed)
+                } catch {
+                    results.append(AppOutcome(package: nil, status: .failed, detail: error.localizedDescription))
+                }
             }
             let data = try NativeState.json(["started_at": started, "apply": apply, "timezone": config.timeZoneID,
                                             "results": results.map(\.row)])
             if apply { try state.save(data) }
             return (data, Int32(results.contains(where: { $0.status.needsAttention }) ? 2 : 0))
         }
-        return try apply ? state.withLock(run) : run()
+        return try await apply ? state.withAsyncLock(run) : run()
+    }
+
+    private func appResults(platform: any ApplicationPlatform, config: EngineConfiguration, apply: Bool, due: Bool,
+                            only: Set<String>, skip: [String], confirmed: [RunResult]?) async throws -> [AppOutcome] {
+        let registry = BackendRegistry(process: process, config: config, includeBundledSparkle: due && apply)
+        let coordinator = UpdateCoordinator(platform: platform, config: config, backend: registry.backend)
+        let apps = try platform.inventory().filter { !due || registry.casks[$0.path] == nil }
+        if let confirmed {
+            let byIdentity = Dictionary(uniqueKeysWithValues: apps.map { ($0.identity, $0) })
+            return confirmed.map { target in
+                guard let app = byIdentity[ApplicationIdentity(bundleID: target.bundleID, path: target.path)],
+                      app.matchesPreview(target) else { return AppOutcome(skipping: target) }
+                return coordinator.handle(app, apply: apply, revalidateSelection: true)
+            }
+        }
+        let selected = apps.filter { only.isEmpty || only.contains($0.bundleID) }
+        guard due && apply else { return selected.map { coordinator.handle($0, apply: apply) } }
+        var releases: [AppOutcome] = []
+        do {
+            let catalog = try UpdateCatalog(configURL: configURL, stateDirectory: stateDirectory, process: process, skip: skip)
+            let installed = if let mac = platform as? MacApplications { try mac.installedApps() } else { selected }
+            releases = try await catalog.scheduledReleases(installed, only: only)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            releases = [AppOutcome(name: "App releases", bundleID: "releases", status: .failed, detail: error.localizedDescription)]
+        }
+        let checkedPaths = Set(releases.map(\.path))
+        return releases + selected.filter { !checkedPaths.contains($0.path) }.map { coordinator.handle($0, apply: apply) }
     }
 }
 
@@ -75,7 +111,7 @@ public enum EvergreenCommandLine {
                         [--skip BUNDLE_ID_OR_PATTERN]
 
         Check, update, relaunch and verify running macOS apps. Run without --apply to preview proposed actions.
-        --due applies the once-per-local-date schedule gate from the config.
+        --due applies the once-per-local-date schedule gate and update scope from the config.
 
         """
 
@@ -85,14 +121,14 @@ public enum EvergreenCommandLine {
         init(_ message: String) { self.message = message }
     }
 
-    public static func run(_ arguments: [String]) -> Output {
+    public static func run(_ arguments: [String]) async -> Output {
         if arguments.contains("-h") || arguments.contains("--help") {
             return Output(stdout: Data(usage.utf8), stderr: Data(), exitCode: 0)
         }
         do {
             let options = try parse(arguments)
             let engine = NativeEngine(configURL: options.config, stateDirectory: options.stateDirectory)
-            let outcome = try engine.execute(options.command, apply: options.apply, due: options.due,
+            let outcome = try await engine.execute(options.command, apply: options.apply, due: options.due,
                                              only: options.only, skip: options.skip)
             return Output(stdout: outcome.data, stderr: Data(), exitCode: outcome.exitCode)
         } catch let error as ArgumentError {

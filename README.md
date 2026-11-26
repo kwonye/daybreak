@@ -14,16 +14,16 @@ Open Evergreen to start guided setup. You can revisit it anytime in **Settings �
 
 ## Check and install updates
 
-1. Open **Updates** and choose **Check for Updates**. Checking never closes apps or installs anything.
+1. Open **Apps** to check installed apps. Evergreen checks on launch, and **Check for Updates** refreshes the results. Checking never closes apps or installs anything.
 2. Choose an update to install it, or confirm **Update All…** to install eligible updates one at a time. See the results in **History**, which stays on your Mac.
-3. If Evergreen shows **Newer release** or **Check manually**, open the app or its updater to finish. A newer public release doesn’t guarantee it’s available for your copy.
+3. A **Newer release** with an **Update** button can be installed from Evergreen. Other releases link to the app or its release page.
 
-Evergreen can install compatible updates for apps that use Sparkle, Homebrew, Google Chrome’s updater, and Microsoft AutoUpdate. Some apps still need their own updater. Evergreen shows macOS updates and sends you to **System Settings** to install them. For eligible Mac App Store apps, you can opt in to installation in **Settings → Updates**; macOS may ask for administrator approval. Leave Docker Desktop updates off if you can’t interrupt its workloads.
+Evergreen can install compatible Sparkle and Electron releases, including ZIP-only Electron releases, and supports Google Chrome’s updater and Microsoft AutoUpdate. When Homebrew is installed, **Brew** lists updates to formulae and casks. System updates open **System Settings**. For eligible Mac App Store apps, you can opt in to installation in **Settings → Updates**. macOS may ask for administrator approval. Leave Docker Desktop updates off if you can’t interrupt its workloads.
 
 ## Choose when apps can restart
 
 - **Protect apps you don’t want interrupted.** Add them to **Whitelist** and Evergreen will skip them, including during **Update All**.
-- **Run on your schedule.** Automatic runs are off until you enable them. They cover apps that were running when the job started. Keep Evergreen running in the menu bar, and turn on **Start at Login** in **Settings → General** if you want it to be ready after you sign in. Evergreen won’t wake your Mac or replay missed days.
+- **Run on your schedule.** In **Settings → Schedule**, enable automatic runs for Apps, Brew, or both. Enable **Run in background when Evergreen is closed** to keep the schedule active while you’re signed in. Evergreen runs within 30 minutes of the scheduled time. After a missed window, it offers **Run Updates Now** when there are updates it can install. Enable **Missed Run Notifications** to use that action from Notification Center.
 - **Review what will restart.** Scheduled runs can restart already-up-to-date apps unless you turn that off. Apps without a supported updater are left alone by default; you can opt in to restarting them to activate updates they’ve already downloaded.
 
 Evergreen asks apps to quit normally. It never force-quits, dismisses save dialogs, or reboots your Mac. **Save your work first:** even a normal quit can lose an unsaved form, a private browsing session, or a meeting connection.
