@@ -29,7 +29,7 @@ xcodebuild -quiet -project "$SOURCE/Sparkle.xcodeproj" -target sparkle-cli -conf
 
 HELPER="$DESTINATION/sparkle.app"
 ditto "$PRODUCTS/Release/sparkle.app" "$HELPER"
-/usr/libexec/PlistBuddy -c 'Set CFBundleIdentifier co.kwon.daybreak.sparkle' "$HELPER/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set CFBundleIdentifier co.kwon.evergreen.sparkle' "$HELPER/Contents/Info.plist"
 cp "$SOURCE/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"
 
 if [ "$IDENTITY" = "-" ]; then

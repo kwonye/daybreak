@@ -69,7 +69,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>Evergreen</string>
     <key>CFBundleExecutable</key><string>Evergreen</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundleIdentifier</key><string>co.kwon.daybreak</string>
+    <key>CFBundleIdentifier</key><string>co.kwon.evergreen</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>Evergreen</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -95,8 +95,8 @@ if [ "$IDENTITY" = "-" ]; then
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
-codesign "$@" --identifier co.kwon.daybreak.cli "$APP/Contents/Helpers/evergreen"
-codesign "$@" --identifier co.kwon.daybreak.store-installer "$APP/Contents/Helpers/evergreen-store-installer"
+codesign "$@" --identifier co.kwon.evergreen.cli "$APP/Contents/Helpers/evergreen"
+codesign "$@" --identifier co.kwon.evergreen.store-installer "$APP/Contents/Helpers/evergreen-store-installer"
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 

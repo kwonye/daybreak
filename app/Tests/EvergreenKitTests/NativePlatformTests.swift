@@ -14,7 +14,7 @@ import Testing
         let helper = macOS.appendingPathComponent("Helper")
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: main)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/false"), to: helper)
-        let properties = ["CFBundleIdentifier": "co.kwon.daybreak.signedfixture",
+        let properties = ["CFBundleIdentifier": "co.kwon.evergreen.signedfixture",
                           "CFBundlePackageType": "APPL", "CFBundleVersion": "10"]
         try PropertyListSerialization.data(fromPropertyList: properties, format: .xml, options: 0)
             .write(to: root.appendingPathComponent("Contents/Info.plist"))

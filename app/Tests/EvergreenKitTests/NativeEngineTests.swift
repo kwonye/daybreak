@@ -8,7 +8,8 @@ import Testing
         let directory = temporaryURL()
         defer { try? FileManager.default.removeItem(at: directory) }
         let platform = FakePlatform([sample(), sample(id: "com.docker.docker"),
-                                     sample(id: "co.kwon.daybreak"), sample(id: "com.example.skip")])
+                                     sample(id: "co.kwon.evergreen"), sample(id: "co.kwon.daybreak"),
+                                     sample(id: "com.example.skip")])
         let runner = UpdaterProcess { _, _ in Issue.record("Preview invoked a program"); throw EngineFailure("unexpected") }
         let engine = NativeEngine(configURL: nil, stateDirectory: directory, process: runner, platform: platform)
         let output = try engine.execute(.run, due: true, skip: ["com.example.skip"]) {
@@ -17,7 +18,7 @@ import Testing
         let report = try JSONDecoder().decode(RunReport.self, from: output.data)
         #expect(platform.events == ["inventory"])
         #expect(output.exitCode == 2)
-        #expect(report.results.map(\.status) == [.unsupported, .blocked, .excluded, .excluded])
+        #expect(report.results.map(\.status) == [.unsupported, .blocked, .excluded, .excluded, .excluded])
         #expect(!FileManager.default.fileExists(atPath: directory.path))
         #expect(throws: EngineFailure.self) { try engine.execute(.run, skip: [""]) }
     }

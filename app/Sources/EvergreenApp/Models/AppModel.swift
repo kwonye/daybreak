@@ -158,6 +158,7 @@ final class AppModel {
 
     init(launchOptions: LaunchOptions = LaunchOptions(arguments: CommandLine.arguments)) {
         let defaults = UserDefaults.standard
+        Self.migrateDaybreakPreferences(defaults)
         self.launchOptions = launchOptions
         configStore = ConfigStore(url: launchOptions.configPath.map { URL(fileURLWithPath: $0) } ?? ConfigStore.defaultURL)
         let hideDock = defaults.bool(forKey: DefaultsKey.hideDock)
@@ -166,6 +167,21 @@ final class AppModel {
         stateDirectoryPath = defaults.string(forKey: DefaultsKey.stateDirectory) ?? ""
         let stored = defaults.string(forKey: DefaultsKey.selection).flatMap(SidebarSection.init(rawValue:))
         selection = launchOptions.pane.flatMap(SidebarSection.init(launchName:)) ?? stored ?? .updates
+    }
+
+    private static func migrateDaybreakPreferences(_ defaults: UserDefaults) {
+        let bundleID = InventoryApp.ownBundleID
+        guard Bundle.main.bundleIdentifier == bundleID else { return }
+        let marker = "migratedDaybreakPreferences"
+        let current = defaults.persistentDomain(forName: bundleID) ?? [:]
+        guard current[marker] == nil else { return }
+        let legacy = defaults.persistentDomain(forName: "co.kwon.daybreak") ?? [:]
+        let keys = [DefaultsKey.stateDirectory, DefaultsKey.menuBar, DefaultsKey.hideDock,
+                    DefaultsKey.selection, DefaultsKey.setupCompleted, "hideProtectedApps"]
+        for key in keys where current[key] == nil {
+            if let value = legacy[key] { defaults.set(value, forKey: key) }
+        }
+        defaults.set(true, forKey: marker)
     }
 
     var isEngineReady: Bool { engineState == .ready }

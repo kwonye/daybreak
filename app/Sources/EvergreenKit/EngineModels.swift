@@ -63,7 +63,7 @@ public struct InventoryApp: Decodable, Sendable, Hashable, Identifiable {
     }
 
     /// This app's bundle ID. The GUI never lets an apply run quit itself.
-    public static let ownBundleID = "co.kwon.daybreak"
+    public static let ownBundleID = "co.kwon.evergreen"
 
     public var isSelf: Bool { bundleID == Self.ownBundleID }
 
@@ -73,6 +73,7 @@ public struct InventoryApp: Decodable, Sendable, Hashable, Identifiable {
 
     static func protectionReason(bundleID: String, path: String) -> String? {
         if bundleID == ownBundleID || bundleID.hasPrefix(ownBundleID + ".") { return "Evergreen protects itself" }
+        if bundleID == "co.kwon.daybreak" || bundleID.hasPrefix("co.kwon.daybreak.") { return "Previous version of Evergreen" }
         if ["/System/", "/usr/", "/Library/Apple/"].contains(where: path.hasPrefix) { return "macOS system app" }
         if bundleID == "com.openai.sky.CUAService" || path.contains("/Contents/")
         || path.hasPrefix("/Library/SystemExtensions/") {

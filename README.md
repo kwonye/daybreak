@@ -95,7 +95,7 @@ cd "$HOME/Developer/github/kwonye/evergreen"
 
 For a job that runs from an installed app, invoke `/Applications/Evergreen.app/Contents/Helpers/evergreen` with the same arguments. Keep the same config and state directory when switching commands.
 
-If you upgraded from Daybreak, Evergreen uses your existing `~/.config/daybreak/config.json` and `~/Library/Application Support/Daybreak/` when their Evergreen counterparts are absent. The `scripts/daybreak` command and the bundled `daybreak` helper still work. Update any absolute app paths in your jobs if you rename the installed bundle to `Evergreen.app`.
+If you upgraded from Daybreak, Evergreen uses your existing `~/.config/daybreak/config.json` and `~/Library/Application Support/Daybreak/` when their Evergreen counterparts are absent. The `scripts/daybreak` command and the bundled `daybreak` helper still work. Update any absolute app paths in your jobs if you rename the installed bundle to `Evergreen.app`. Evergreen imports app preferences on first launch. If you used Start at Login, enable it for Evergreen in Settings because macOS registers login items by app identity.
 
 The gate uses `America/Los_Angeles`, so DST follows Pacific wall time. By default it allows one run per local calendar date at or after 08:00. Settings can change the time and restrict eligible dates to weekdays or one day a week. A late same-day invocation catches up; it does not wake a sleeping Mac, run while logged out, or replay missed days. External jobs and automatic in-app runs share the gate when they use the same state folder.
 
