@@ -24,14 +24,20 @@ struct NativeState: Sendable {
 
     func withLock<T>(_ action: () throws -> T) throws -> T {
         let fd = try acquireLock()
-        defer { close(fd) }
+        defer { releaseLock(fd) }
         return try action()
     }
 
     func withAsyncLock<T>(_ action: () async throws -> T) async throws -> T {
         let fd = try acquireLock()
-        defer { close(fd) }
+        defer { releaseLock(fd) }
         return try await action()
+    }
+
+    private func releaseLock(_ fd: Int32) {
+        // A concurrent fork can hold a copy of the descriptor until exec.
+        _ = flock(fd, LOCK_UN)
+        close(fd)
     }
 
     private func acquireLock() throws -> Int32 {
