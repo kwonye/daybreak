@@ -258,10 +258,12 @@ private struct GeneralSettingsView: View {
             if let updater = model.appUpdater, updater.isAvailable {
                 Section("Evergreen Updates") {
                     Toggle("Automatically check for updates", isOn: Binding(
-                        get: { updater.automaticallyChecks }, set: updater.setAutomaticChecks
+                        get: { updater.automaticallyChecks },
+                        set: { enabled in updater.setAutomaticChecks(enabled) }
                     ))
                     Toggle("Automatically install updates", isOn: Binding(
-                        get: { updater.automaticallyInstalls }, set: updater.setAutomaticInstallation
+                        get: { updater.automaticallyInstalls },
+                        set: { enabled in updater.setAutomaticInstallation(enabled) }
                     ))
                     .disabled(!updater.automaticallyChecks)
                     Button("Check for Evergreen Updates…", action: updater.check)
