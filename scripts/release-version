@@ -1,0 +1,38 @@
+#!/bin/sh
+# Print the next stable release version. An empty result means HEAD was already released.
+set -eu
+cd "$(dirname "$0")/.."
+
+stable='^v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$'
+tags="$(git tag --list 'v*' --sort=-version:refname)"
+previous="$(printf '%s\n' "$tags" | awk -v pattern="$stable" '$0 ~ pattern { print; exit }')"
+
+if [ -z "$previous" ]; then
+    initial="$(./scripts/version)"
+    if ! printf 'v%s\n' "$initial" | grep -Eq "$stable"; then
+        printf 'error: the first release requires a MAJOR.MINOR.PATCH version in VERSION\n' >&2
+        exit 1
+    fi
+    printf '%s\n' "$initial"
+    exit 0
+fi
+
+if git merge-base --is-ancestor HEAD "$previous"; then
+    exit 0
+fi
+if ! git merge-base --is-ancestor "$previous" HEAD; then
+    printf 'error: latest release %s is outside the current branch history\n' "$previous" >&2
+    exit 1
+fi
+
+messages="$(git log --format='subject:%s%n%b' "$previous..HEAD")"
+printf '%s\n' "$messages" | awk -v version="${previous#v}" '
+    /^BREAKING[ -]CHANGE:/ || /^subject:[[:alnum:]_-]+(\([^)]*\))?!:/ { breaking = 1 }
+    /^subject:feat(\([^)]*\))?:/ { feature = 1 }
+    END {
+        split(version, parts, ".")
+        if (breaking) printf "%d.0.0\n", parts[1] + 1
+        else if (feature) printf "%d.%d.0\n", parts[1], parts[2] + 1
+        else printf "%d.%d.%d\n", parts[1], parts[2], parts[3] + 1
+    }
+'

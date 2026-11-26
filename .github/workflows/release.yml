@@ -1,9 +1,13 @@
 name: Release
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the next stable release from main
+        type: boolean
+        default: false
   push:
     branches: [main]
-    tags: ['v*']
     paths:
       - 'app/**'
       - 'examples/**'
@@ -21,34 +25,47 @@ permissions:
   contents: read
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  queue: max
 jobs:
   mac-app:
     runs-on: xcode-27
     timeout-minutes: 60
     outputs:
       version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check version
+          fetch-depth: 0
+      - name: Resolve build version
         id: version
+        env:
+          PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish) }}
         run: |
           xcodebuild -version
-          version="$(./scripts/version)"
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $version"
-            exit 1
+          if [ "$PUBLISH" = "true" ]; then
+            version="$(sh ./scripts/release-version)"
+            if [ -z "$version" ]; then
+              echo "This commit is already included in a stable release."
+              exit 0
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            version="$(./scripts/version)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "EVERGREEN_BUILD_VERSION=$version" >> "$GITHUB_ENV"
       - name: Test
-        run: swift test --package-path app
+        if: steps.version.outputs.version != ''
+        run: |
+          sh scripts/tests/release-version.sh
+          swift test --package-path app
       - name: Check required signing secrets
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -66,12 +83,13 @@ jobs:
             exit 1
           fi
       - name: Import signing certificate into a temporary keychain
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           keychain="$RUNNER_TEMP/evergreen-signing.keychain-db"
+          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           keychain_password=$(openssl rand -hex 24)
           cert="$RUNNER_TEMP/certificate.p12"
           printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$cert"
@@ -87,10 +105,9 @@ jobs:
             echo "::error::The certificate in MACOS_CERTIFICATE_P12_BASE64 is not a Developer ID Application certificate"
             exit 1
           fi
-          echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
           echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
       - name: Store notarization credentials
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -101,25 +118,28 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
           echo "NOTARY_PROFILE=evergreen-notary" >> "$GITHUB_ENV"
       - name: Build release ZIP
+        if: steps.version.outputs.version != ''
         env:
-          SPARKLE_FEED_URL: ${{ github.ref_type == 'tag' && format('{0}/{1}/releases/latest/download/appcast.xml', github.server_url, github.repository) || '' }}
+          SPARKLE_FEED_URL: ${{ steps.version.outputs.publish == 'true' && format('{0}/{1}/releases/latest/download/appcast.xml', github.server_url, github.repository) || '' }}
         run: ./scripts/build-app.sh
       - name: Verify release bundle and CLI
+        if: steps.version.outputs.version != ''
         run: |
           codesign --verify --deep --strict --verbose=2 .build/Evergreen.app
           env -i PATH=/usr/bin:/bin .build/Evergreen.app/Contents/Helpers/evergreen status --config "$RUNNER_TEMP/evergreen-config.json" --state-dir "$RUNNER_TEMP/evergreen-state"
           unzip -t ".build/dist/Evergreen-$VERSION.zip"
       - name: Verify notarization
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         run: |
           xcrun stapler validate .build/Evergreen.app
           spctl --assess --type execute --verbose .build/Evergreen.app
       - name: Generate and verify signed appcast
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.publish == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: ./scripts/generate-appcast.sh "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.version.outputs.version != ''
         with:
           name: Evergreen-${{ env.VERSION }}
           path: |
@@ -132,7 +152,7 @@ jobs:
         run: |
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
   publish:
-    if: github.ref_type == 'tag'
+    if: needs.mac-app.outputs.publish == 'true'
     needs: mac-app
     runs-on: ubuntu-latest
     permissions:
@@ -146,4 +166,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Evergreen-$VERSION.zip" appcast.xml --repo "$GITHUB_REPOSITORY" --verify-tag --title "Evergreen $VERSION" --generate-notes
+        run: |
+          gh release create "v$VERSION" "Evergreen-$VERSION.zip" appcast.xml \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Evergreen $VERSION" --generate-notes --latest
