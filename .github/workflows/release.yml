@@ -24,12 +24,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
   mac-app:
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 60
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +37,7 @@ jobs:
       - name: Check version
         id: version
         run: |
+          xcodebuild -version
           version="$(./scripts/version)"
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match VERSION $version"
