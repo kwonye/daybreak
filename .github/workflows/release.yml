@@ -49,6 +49,7 @@ jobs:
       - name: Check required signing secrets
         if: github.ref_type == 'tag'
         env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -56,7 +57,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           missing=""
-          for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+          for name in SPARKLE_PRIVATE_KEY MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
@@ -99,6 +100,8 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$KEYCHAIN"
           echo "NOTARY_PROFILE=evergreen-notary" >> "$GITHUB_ENV"
       - name: Build release ZIP
+        env:
+          SPARKLE_FEED_URL: ${{ github.ref_type == 'tag' && format('{0}/{1}/releases/latest/download/appcast.xml', github.server_url, github.repository) || '' }}
         run: ./scripts/build-app.sh
       - name: Verify release bundle and CLI
         run: |
@@ -110,10 +113,17 @@ jobs:
         run: |
           xcrun stapler validate .build/Evergreen.app
           spctl --assess --type execute --verbose .build/Evergreen.app
+      - name: Generate and verify signed appcast
+        if: github.ref_type == 'tag'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: ./scripts/generate-appcast.sh "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
         with:
           name: Evergreen-${{ env.VERSION }}
-          path: .build/dist/Evergreen-${{ env.VERSION }}.zip
+          path: |
+            .build/dist/Evergreen-${{ env.VERSION }}.zip
+            .build/dist/appcast.xml
           include-hidden-files: true
           if-no-files-found: error
       - name: Delete temporary keychain
@@ -135,4 +145,4 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Evergreen-$VERSION.zip" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Evergreen $VERSION" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" "Evergreen-$VERSION.zip" appcast.xml --repo "$GITHUB_REPOSITORY" --verify-tag --title "Evergreen $VERSION" --generate-notes

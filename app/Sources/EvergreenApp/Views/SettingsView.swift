@@ -255,6 +255,19 @@ private struct GeneralSettingsView: View {
                      ? "Open Evergreen when you sign in to your Mac."
                      : "Start at Login is available in the packaged Evergreen app.")
             }
+            if let updater = model.appUpdater, updater.isAvailable {
+                Section("Evergreen Updates") {
+                    Toggle("Automatically check for updates", isOn: Binding(
+                        get: { updater.automaticallyChecks }, set: updater.setAutomaticChecks
+                    ))
+                    Toggle("Automatically install updates", isOn: Binding(
+                        get: { updater.automaticallyInstalls }, set: updater.setAutomaticInstallation
+                    ))
+                    .disabled(!updater.automaticallyChecks)
+                    Button("Check for Evergreen Updates…", action: updater.check)
+                        .disabled(!updater.canCheck || model.isApplying)
+                }
+            }
             Section {
                 Toggle("Show Evergreen in the menu bar", isOn: $model.showMenuBar)
                     .disabled(model.hideDockIcon)

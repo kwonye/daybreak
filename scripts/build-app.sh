@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds .build/Evergreen.app (universal arm64 + x86_64) with the native CLI
-# bundled, signs it with the hardened runtime, and writes .build/dist/Evergreen-<version>.zip.
+# bundled, signs it, and writes .build/dist/Evergreen-<version>.zip.
 # It never installs, launches, schedules or updates anything.
 #
 # Environment:
@@ -9,6 +9,7 @@
 #   NOTARY_PROFILE     notarytool keychain profile (xcrun notarytool store-credentials ...).
 #   KEYCHAIN           Optional keychain file holding NOTARY_PROFILE (used by the release workflow).
 #                      Set together with a Developer ID identity to notarize and staple.
+#   SPARKLE_FEED_URL   HTTPS appcast URL to enable Evergreen self-updates.
 #   ARCHS              Architectures to build (default: "arm64 x86_64").
 set -eu
 cd "$(dirname "$0")/.."
@@ -58,7 +59,7 @@ ln -s evergreen "$APP/Contents/Helpers/daybreak"
 cp "$BIN_DIR/evergreen-store-installer" "$APP/Contents/Helpers/evergreen-store-installer"
 cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
-    "$APP/Contents/Helpers" "$APP/Contents/Resources"
+    "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 YEAR="$(date +%Y)"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -85,13 +86,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+if [ -n "${SPARKLE_FEED_URL:-}" ]; then
+    case "$SPARKLE_FEED_URL" in
+        https://*) ;;
+        *) printf 'error: SPARKLE_FEED_URL must use HTTPS\n' >&2; exit 1 ;;
+    esac
+    PLIST="$APP/Contents/Info.plist"
+    plutil -insert SUFeedURL -string "$SPARKLE_FEED_URL" "$PLIST"
+    plutil -insert SUPublicEDKey -string "$(cat app/Resources/SparklePublicKey.txt)" "$PLIST"
+    plutil -insert SURequireSignedFeed -bool YES "$PLIST"
+    plutil -insert SUVerifyUpdateBeforeExtraction -bool YES "$PLIST"
+    plutil -insert SUEnableAutomaticChecks -bool YES "$PLIST"
+    plutil -insert SUAutomaticallyUpdate -bool NO "$PLIST"
+fi
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# Sign inside-out (no --deep): the helper first, then the bundle. Hardened runtime always;
-# secure timestamps only with a real identity (ad-hoc signatures cannot be timestamped).
+# Sign inside-out (no --deep). Enable hardened runtime and secure timestamps for distribution.
+# Ad-hoc code has no team ID for library validation of the bundled framework.
 if [ "$IDENTITY" = "-" ]; then
-    set -- --force --options runtime --sign -
+    set -- --force --sign -
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi

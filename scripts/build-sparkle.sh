@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the official external Sparkle updater from a pinned source revision.
+# Package Sparkle for Evergreen and build its separate external updater from pinned source.
 set -eu
 
 CACHE="$1"
@@ -8,6 +8,7 @@ MIN_MACOS="$3"
 IDENTITY="$4"
 DESTINATION="$5"
 RESOURCES="$6"
+FRAMEWORKS="$7"
 REVISION=ab7d71291238df6e0492143b120c9b696a35f603 # Sparkle 2.10.1
 SOURCE="$CACHE/$REVISION"
 PRODUCTS="$CACHE/products-$REVISION"
@@ -38,13 +39,23 @@ if [ "$IDENTITY" = "-" ]; then
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
-FRAMEWORK="$HELPER/Contents/Frameworks/Sparkle.framework/Versions/Current"
-codesign "$@" "$FRAMEWORK/Autoupdate"
-codesign "$@" "$FRAMEWORK/Updater.app"
-for service in "$FRAMEWORK"/XPCServices/*.xpc; do
-    if [ -d "$service" ]; then codesign "$@" "$service"; fi
-done
-codesign "$@" "$FRAMEWORK"
+sign_framework() {
+    framework="$1/Versions/Current"
+    shift
+    codesign "$@" "$framework/Autoupdate"
+    codesign "$@" "$framework/Updater.app"
+    for service in "$framework"/XPCServices/*.xpc; do
+        if [ -d "$service" ]; then codesign "$@" "$service"; fi
+    done
+    codesign "$@" "$framework"
+}
+
+# SwiftPM downloads the universal XCFramework linked by EvergreenApp.
+mkdir -p "$FRAMEWORKS"
+ditto app/.build/artifacts/app/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework \
+    "$FRAMEWORKS/Sparkle.framework"
+sign_framework "$FRAMEWORKS/Sparkle.framework" "$@"
+sign_framework "$HELPER/Contents/Frameworks/Sparkle.framework" "$@"
 codesign "$@" "$HELPER"
 codesign --verify --deep --strict "$HELPER"
 USAGE="$("$HELPER/Contents/MacOS/sparkle" 2>&1 || :)"

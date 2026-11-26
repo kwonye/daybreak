@@ -124,6 +124,7 @@ final class AppModel {
         hasStarted = true
         await bootstrap()
         if launchOptions.snapshotDirectory == nil {
+            appUpdater = AppUpdater()
             scheduleTask = Task { [weak self] in
                 while !Task.isCancelled, self != nil {
                     await self?.scheduler.runScheduledIfDue()
@@ -150,6 +151,7 @@ final class AppModel {
     let configStore: ConfigStore
     let launchOptions: LaunchOptions
     let loginItem = LoginItemModel()
+    private(set) var appUpdater: AppUpdater?
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
     @ObservationIgnored private(set) lazy var updates = UpdatesModel(app: self)
     @ObservationIgnored private(set) lazy var inventory = InventoryModel(app: self)

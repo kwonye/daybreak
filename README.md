@@ -6,6 +6,10 @@ A local macOS update coordinator for the apps that are running when the daily jo
 
 [Evergreen website](https://kwonye.github.io/evergreen/)
 
+## Keep Evergreen up to date
+
+Start with [Evergreen from GitHub Releases](https://github.com/kwonye/evergreen/releases). Evergreen checks for new versions in the background. Choose **Evergreen → Check for Evergreen Updates…** to check right away. To let Evergreen install updates automatically, enable it in **Settings → General → Evergreen Updates**.
+
 ## Set up Evergreen
 
 Guided setup opens on first launch and is available again under **Settings → General → Set Up Evergreen**. Choose which updates and restarts to allow, a time and cadence, whether Evergreen starts at login, and how it appears in the menu bar and Dock.
@@ -125,7 +129,7 @@ Exit 0 means no attention state was reported (not “everything is latest”). E
 `app/` is an optional native SwiftUI front end. Build it with Xcode 26 or newer. It runs on macOS 14 and later, with native Liquid Glass controls on macOS 26 and later. The GUI and bundled CLI share the same Swift engine, config, and report formats.
 
 ```sh
-./scripts/build-app.sh          # .build/Evergreen.app (universal, hardened runtime) + .build/dist/Evergreen-<version>.zip
+./scripts/build-app.sh          # .build/Evergreen.app (universal) + .build/dist/Evergreen-<version>.zip
 open .build/Evergreen.app
 cd app && swift run EvergreenApp # development
 cd app && swift test            # unit tests; DAYBREAK_INTEGRATION=1 adds read-only engine checks
@@ -168,4 +172,4 @@ Tests cover safety failures, backend commands, DST, idempotency, locking and con
 
 The Release workflow runs Swift tests, builds the universal app and CLI, verifies the bundle, smoke-tests the bundled CLI, and uploads the release ZIP. Pull requests and pushes to main trigger an ad-hoc signed build when code, build inputs, examples, or workflows change. Use Actions → Release → Run workflow to build manually.
 
-Push a tag matching the root `VERSION` file (for example, `v0.1.0`) to build with Developer ID signing, notarize the app, and publish the verified ZIP to GitHub Releases.
+Push a tag matching the root `VERSION` file (for example, `v0.1.0`) to build with Developer ID signing, notarize the app, and publish the verified ZIP and signed Sparkle appcast together to GitHub Releases. Tagged builds require the Apple signing and notarization secrets listed in the [Release workflow](.github/workflows/release.yml), plus `SPARKLE_PRIVATE_KEY` matching the public key in `app/Resources/SparklePublicKey.txt`. The macOS bundle checks the latest stable release’s `appcast.xml` and verifies both the feed and the ZIP. Local builds omit self-updates unless built with an explicit HTTPS `SPARKLE_FEED_URL`.

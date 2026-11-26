@@ -46,6 +46,10 @@ struct EvergreenCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Evergreen") { AboutPanel.show() }
+            if let updater = model.appUpdater, updater.isAvailable {
+                Button("Check for Evergreen Updates…", action: updater.check)
+                    .disabled(!updater.canCheck || model.isApplying)
+            }
         }
         CommandGroup(replacing: .newItem) {}
         CommandGroup(before: .sidebar) {
