@@ -2,6 +2,7 @@
 
 Reviewed 2026-11-08. Command behavior can change; test an adapter against the installed tool before enabling it.
 
+- [Homebrew Formulae JSON API](https://formulae.brew.sh/docs/api/) for public cask release metadata
 - [Sparkle CLI documentation](https://sparkle-project.org/documentation/sparkle-cli/)
 - [Sparkle argument validation](https://github.com/sparkle-project/Sparkle/blob/2.x/sparkle-cli/main.m)
 - [Sparkle exit codes](https://github.com/sparkle-project/Sparkle/blob/2.x/sparkle-cli/SPUCommandLineDriver.m)

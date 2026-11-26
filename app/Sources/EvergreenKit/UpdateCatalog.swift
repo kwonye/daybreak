@@ -36,7 +36,7 @@ public struct UpdateItem: Identifiable, Sendable, Equatable {
 struct UpdateCatalog: Sendable {
     private enum Route: Sendable {
         case backend(UpdateBackend)
-        case system, store, app, github(ReleaseRepository)
+        case system, store, app, publicCatalog, github(ReleaseRepository)
         case microsoft(String)
     }
 
@@ -109,7 +109,10 @@ struct UpdateCatalog: Sendable {
         if app.metadata.hints.contains("app-store") { return .store }
         if let appID = microsoft[app.path] { return .microsoft(appID) }
         if let repository = repository(for: app) { return .github(repository) }
-        return try scopedBackend(for: app)
+        let route = try scopedBackend(for: app)
+        guard case .app = route else { return route }
+        if let probe = registry.catalogProbe(for: app) { return .backend(probe) }
+        return .publicCatalog
     }
 
     private func scopedBackend(for app: ManagedApp) throws -> Route {
@@ -144,6 +147,8 @@ struct UpdateCatalog: Sendable {
         switch route {
         case .app:
             item.status = .checkInApp
+            item.action = .openApp
+        case .publicCatalog:
             item.action = .openApp
         case .store:
             item.action = .openStore
@@ -183,7 +188,7 @@ struct UpdateCatalog: Sendable {
             let backend: UpdateBackend
             let check: UpdateCheck
             switch route {
-            case .backend(let adapter) where adapter.kind != .restart && adapter.kind != .appStore:
+            case .backend(let adapter) where adapter.kind != .restart && adapter.kind != .appStore && adapter.sparkleProbeFeed == nil:
                 backend = adapter
                 check = try adapter.check(app, interactiveCatalog: true)
             case .microsoft(let id):
@@ -356,6 +361,16 @@ struct UpdateCatalog: Sendable {
     func check(_ items: [UpdateItem], progress: @Sendable (UpdateItem) async -> Void) async throws {
         let microsoft = microsoftApps()
         let apps = try Dictionary(uniqueKeysWithValues: platform.installedApps().map { ($0.path, $0) })
+        let discovered = Dictionary(items.compactMap { target -> (String, (app: ManagedApp, item: UpdateItem, route: Route))? in
+            guard let path = target.path, let app = apps[path], target.bundleID == app.bundleID else { return nil }
+            let (row, route) = item(for: app, microsoft: microsoft)
+            return (path, (app, row, route))
+        }, uniquingKeysWith: { first, _ in first })
+        let needsPublicCatalog = discovered.values.contains { candidate in
+            if case .publicCatalog = candidate.route { return true }
+            return false
+        }
+        let publicCatalog = needsPublicCatalog ? Task.detached(priority: .utility) { await HomebrewCatalog.fetch() } : nil
         let stores = items.filter { $0.action == .openStore }
         let store = stores.isEmpty ? nil : Task.detached(priority: .utility) { await storeResults(stores, apps: apps) }
         let microsoftAvailable = apps.values.contains { microsoft[$0.path] != nil }
@@ -363,6 +378,7 @@ struct UpdateCatalog: Sendable {
         defer {
             store?.cancel()
             microsoftAvailable?.cancel()
+            publicCatalog?.cancel()
         }
         // Use bounded parallelism. Each app can run an independent network probe.
         for offset in stride(from: 0, to: items.count, by: 6) {
@@ -370,9 +386,11 @@ struct UpdateCatalog: Sendable {
             let batch = Array(items[offset..<min(offset + 6, items.count)])
             try await withThrowingTaskGroup(of: UpdateItem.self) { group in
                 for target in batch {
-                    if let path = target.path, let app = apps[path], target.bundleID == app.bundleID {
-                        let (row, route) = item(for: app, microsoft: microsoft)
-                        group.addTask { try await self.check(row, app: app, route: route, store: store, microsoft: microsoftAvailable) }
+                    if let path = target.path, let entry = discovered[path], target.bundleID == entry.app.bundleID {
+                        group.addTask {
+                            try await self.check(entry.item, app: entry.app, route: entry.route, store: store,
+                                                 microsoft: microsoftAvailable, publicCatalog: publicCatalog)
+                        }
                     } else if target.path == nil {
                         group.addTask { self.checkSystem() }
                     } else {
@@ -389,12 +407,22 @@ struct UpdateCatalog: Sendable {
     }
 
     private func check(_ item: UpdateItem, app: ManagedApp, route: Route, store: Task<[String: StoreResult], Never>?,
-                       microsoft: Task<[String: String]?, Never>?) async throws -> UpdateItem {
+                       microsoft: Task<[String: String]?, Never>?,
+                       publicCatalog: Task<HomebrewCatalog?, Never>?) async throws -> UpdateItem {
         guard item.status == .readyToCheck else { return item }
         var item = item
         do {
             switch route {
             case .app, .system: break
+            case .publicCatalog:
+                if let version = await publicCatalog?.value?.newerVersion(bundleID: app.bundleID, appPath: app.path,
+                                                                          installed: item.installedVersion) {
+                    item.status = .newerRelease
+                    item.offeredVersion = version
+                    item.detail = "Open the app to check whether this version is available."
+                } else {
+                    item.status = .checkInApp
+                }
             case .backend(let backend):
                 switch backend.kind {
                 case .google:

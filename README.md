@@ -61,7 +61,7 @@ Use `--only com.google.Chrome` (repeatable) to limit a run. Do not run as root. 
 | Backend | Behavior | Prerequisites / limits |
 | --- | --- | --- |
 | Chrome | Uses Google's documented `ksadmin --install --productid com.google.Chrome --user-store` compatibility API, then relaunches | Existing user-scope Google updater and exact Chrome registration must match. No updater installation, system scope, or update-all command |
-| Sparkle | Official external Sparkle CLI probes, installs, then coordinator relaunches | Supply `sparkle_cli`; app must expose a compatible feed/configuration. No feed overrides, signature bypass, automatic major-upgrade opt-in, or internal Autoupdate/ShipIt invocation |
+| Sparkle | Official external Sparkle CLI probes, installs, then coordinator relaunches | Supply `sparkle_cli`; app must expose a compatible feed/configuration. No install-time feed overrides, signature bypass, automatic major-upgrade opt-in, or internal Autoupdate/ShipIt invocation |
 | Homebrew cask | Checks/upgrades one existing managed cask | Exact `/Applications` app path must match installed JSON cask metadata. No automatic adoption, reinstall, bulk or greedy updates. Legacy Ruby metadata/custom app directories require an explicit adapter |
 | Mac App Store | Optional `mas outdated` / `mas update ID` | User-installed `mas`, App Store receipt, explicit numeric `app_id`, signed-in account. `mas` is third-party, not an Apple API. It may need user interaction; no sudo or automatic dependency install |
 | Docker Desktop | Native `docker desktop update --quiet`, fresh-process check, then engine health check | Explicit `allow_workload_interruption: true`. Containers, Kubernetes and VM workloads can stop. Docker's command has no stable machine-readable availability response |
@@ -82,6 +82,8 @@ Evergreen skips itself, macOS system apps, bundled helpers, system extensions, a
 - Isolates each app's failure, runs sequentially, locks overlapping jobs, writes private JSON reports, and suppresses arbitrary updater stdout/stderr from reports to reduce accidental sensitive logging.
 
 When a vendor omits `CFBundleExecutable`, Evergreen uses only a unique executable observed by macOS inside that bundle’s `Contents/MacOS` directory. It does not guess from directory contents, accept escaping symlinks, or silently switch to a helper after updating.
+
+The Updates pane checks ChatGPT against its public feed for the installed architecture. For other apps without a supported check, Evergreen can show **Newer release** when the public Homebrew catalog uniquely matches the app’s bundle ID and filename and lists a higher version. Open the app to confirm and install. Apps with no reliable match stay under **Check manually**.
 
 Sparkle exit 4 during installation means no update is available at that point. Evergreen still verifies the signature and relaunch, reports `checked_and_relaunched`, and does not claim an upgrade.
 
