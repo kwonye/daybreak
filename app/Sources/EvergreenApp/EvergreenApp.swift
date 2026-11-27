@@ -33,7 +33,7 @@ struct EvergreenApp: App {
 
     var body: some Scene {
         @Bindable var model = model
-        Window("Evergreen", id: "main") {
+        Window(AppInfo.displayName, id: "main") {
             ContentView(model: model)
                 .onAppear {
                     appDelegate.model = model
@@ -56,7 +56,8 @@ struct EvergreenApp: App {
                 }
         } label: {
             Image(systemName: model.scheduler.missed == nil ? "tree" : "tree.circle.fill")
-                .accessibilityLabel(model.scheduler.missed == nil ? "Evergreen" : "Evergreen, scheduled update missed")
+                .accessibilityLabel(model.scheduler.missed == nil
+                                    ? AppInfo.displayName : "\(AppInfo.displayName), scheduled update missed")
         }
         .menuBarExtraStyle(.window)
 
@@ -72,7 +73,7 @@ struct EvergreenCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About Evergreen") { AboutPanel.show() }
+            Button("About \(AppInfo.displayName)") { AboutPanel.show() }
             if let updater = model.appUpdater, updater.isAvailable {
                 Button("Check for Evergreen Updates…", action: updater.check)
                     .disabled(!updater.canCheck || model.isApplying)
@@ -124,7 +125,7 @@ enum AboutPanel {
         paragraph.alignment = .center
         credits.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: credits.length))
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Evergreen",
+            .applicationName: AppInfo.displayName,
             .applicationVersion: info.shortVersion,
             .version: info.build.isEmpty || info.build == info.shortVersion ? "" : info.build,
             .credits: credits,

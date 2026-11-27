@@ -23,6 +23,9 @@ public enum HistoryStore {
         let files = FileManager.default
         let support = files.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
+        if AppInfo.isDevelopmentBuild {
+            return support.appendingPathComponent(AppInfo.displayName, isDirectory: true)
+        }
         let current = support.appendingPathComponent("Evergreen", isDirectory: true)
         let legacy = support.appendingPathComponent("Daybreak", isDirectory: true)
         return !files.fileExists(atPath: current.path) && files.fileExists(atPath: legacy.path) ? legacy : current

@@ -10,12 +10,12 @@ Use a Mac with Xcode 26 or later and the macOS 26 SDK or newer. Keep the app’s
 git clone https://github.com/kwonye/evergreen.git
 cd evergreen
 ./scripts/build-app.sh
-open .build/Evergreen.app
+open ".build/Evergreen Dev.app"
 ```
 
-The build creates a universal app and `.build/dist/Evergreen-<version>.zip`. The default ad-hoc build is for local use, not distribution. Use the packaged app to verify Liquid Glass on macOS 26 or newer; the build records the linked SDK so macOS enables that appearance.
+The default build creates an ad-hoc-signed universal **Evergreen Dev** that runs alongside the installed app. It uses its own macOS preferences and background schedule, `~/.config/evergreen-dev/config.json`, and `~/Library/Application Support/Evergreen Dev` for reports, cache, and run state. It has no self-update feed. Use the packaged app to verify Liquid Glass on macOS 26 or newer.
 
-For a faster development loop, run `swift run --package-path app EvergreenApp`. To build just the engine and CLI in a checkout, use `./scripts/build.sh`.
+For CLI verification, run `".build/Evergreen Dev.app/Contents/Helpers/evergreen" status`. The bundled CLI uses the development paths by default. Use disposable fixtures for tests that install updates or restart apps, since Evergreen Dev can still act on the Mac’s installed apps. To build just the standalone CLI, use `./scripts/build.sh`.
 
 ## Where to make changes
 
@@ -71,7 +71,7 @@ The current process may already be older than its bundle on disk. Evergreen comp
 
 ## Packaging and signing
 
-Local builds take their version from the root `VERSION` file. Release CI passes the version it calculates to the packaging and appcast scripts. `scripts/build-app.sh` builds arm64 and x86_64 slices of the app and its native CLI, signs the bundled helpers and then the app with the hardened runtime for Developer ID builds, and zips the result into `.build/dist/`:
+Run `./scripts/build-app.sh --release` to build `.build/Evergreen.app` and `.build/dist/Evergreen-<version>.zip` with the production bundle ID. Local builds take their version from the root `VERSION` file. Release CI passes the version it calculates to the packaging and appcast scripts. The script builds arm64 and x86_64 slices and signs Developer ID release builds with the hardened runtime.
 
 | Variable | Effect |
 | --- | --- |
@@ -88,4 +88,4 @@ CI uses Xcode 27.2. The Release workflow runs the versioning and Swift tests, bu
 
 The first release uses `VERSION`. Later releases increment the latest stable tag. A `feat:` or `feat(scope):` commit bumps the minor version. A Conventional Commit with `!:` or a `BREAKING CHANGE:` footer bumps the major version. Other changes bump the patch version. GitHub creates the tag at the built commit and publishes generated release notes with the verified ZIP and signed Sparkle appcast. Use **Actions → Release → Run workflow** for an ad-hoc build, or select **Publish the next stable release from main** to retry publication from `main`.
 
-Automatic releases require the Apple signing and notarization secrets listed in the [Release workflow](.github/workflows/release.yml), plus `SPARKLE_PRIVATE_KEY` matching the public key in `app/Resources/SparklePublicKey.txt`. The macOS bundle checks the latest stable release’s `appcast.xml` and verifies both the feed and the ZIP. Local builds omit self-updates unless built with an explicit HTTPS `SPARKLE_FEED_URL`.
+Automatic releases require the Apple signing and notarization secrets listed in the [Release workflow](.github/workflows/release.yml), plus `SPARKLE_PRIVATE_KEY` matching the public key in `app/Resources/SparklePublicKey.txt`. The macOS bundle checks the latest stable release’s `appcast.xml` and verifies both the feed and the ZIP. For a local release build, supply an explicit HTTPS `SPARKLE_FEED_URL` to enable self-updates.

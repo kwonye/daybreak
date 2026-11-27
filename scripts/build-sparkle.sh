@@ -9,6 +9,7 @@ IDENTITY="$4"
 DESTINATION="$5"
 RESOURCES="$6"
 FRAMEWORKS="$7"
+BUNDLE_ID="$8"
 REVISION=ab7d71291238df6e0492143b120c9b696a35f603 # Sparkle 2.10.1
 SOURCE="$CACHE/$REVISION"
 PRODUCTS="$CACHE/products-$REVISION"
@@ -30,7 +31,7 @@ xcodebuild -quiet -project "$SOURCE/Sparkle.xcodeproj" -target sparkle-cli -conf
 
 HELPER="$DESTINATION/sparkle.app"
 ditto "$PRODUCTS/Release/sparkle.app" "$HELPER"
-/usr/libexec/PlistBuddy -c 'Set CFBundleIdentifier co.kwon.evergreen.sparkle' "$HELPER/Contents/Info.plist"
+plutil -replace CFBundleIdentifier -string "$BUNDLE_ID.sparkle" "$HELPER/Contents/Info.plist"
 cp "$SOURCE/LICENSE" "$RESOURCES/Sparkle-LICENSE.txt"
 
 if [ "$IDENTITY" = "-" ]; then

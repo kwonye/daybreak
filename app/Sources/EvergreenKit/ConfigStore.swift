@@ -271,6 +271,9 @@ public struct ConfigStore: Sendable {
     public static var defaultURL: URL {
         let files = FileManager.default
         let home = files.homeDirectoryForCurrentUser
+        if AppInfo.isDevelopmentBuild {
+            return home.appendingPathComponent(".config/evergreen-dev/config.json")
+        }
         let current = home.appendingPathComponent(".config/evergreen/config.json")
         let legacy = home.appendingPathComponent(".config/daybreak/config.json")
         return !files.fileExists(atPath: current.path) && files.fileExists(atPath: legacy.path) ? legacy : current

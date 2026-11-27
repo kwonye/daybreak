@@ -1,9 +1,9 @@
 #!/bin/sh
-# Builds .build/Evergreen.app (universal arm64 + x86_64) with the native CLI
-# bundled, signs it, and writes .build/dist/Evergreen-<version>.zip.
+# Builds .build/Evergreen Dev.app with the native CLI bundled.
+# Pass --release to build .build/Evergreen.app and .build/dist/Evergreen-<version>.zip.
 # It never installs, launches, schedules or updates anything.
 #
-# Environment:
+# Release environment:
 #   CODESIGN_IDENTITY  Signing identity, e.g. "Developer ID Application: Name (TEAMID)".
 #                      Unset: ad-hoc signature (runs locally, not distributable).
 #   NOTARY_PROFILE     notarytool keychain profile (xcrun notarytool store-credentials ...).
@@ -14,10 +14,22 @@
 set -eu
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
-APP="$ROOT/.build/Evergreen.app"
+case "${1:-}" in
+    '') NAME="Evergreen Dev"; BUNDLE_ID=co.kwon.evergreen.dev ;;
+    --release) NAME=Evergreen; BUNDLE_ID=co.kwon.evergreen ;;
+    *) printf 'usage: %s [--release]\n' "$0" >&2; exit 2 ;;
+esac
+if [ "$#" -gt 1 ]; then
+    printf 'usage: %s [--release]\n' "$0" >&2
+    exit 2
+fi
+APP="$ROOT/.build/$NAME.app"
 DIST="$ROOT/.build/dist"
 ARCHS="${ARCHS:-arm64 x86_64}"
-IDENTITY="${CODESIGN_IDENTITY:--}"
+IDENTITY=-
+if [ "$NAME" = Evergreen ]; then
+    IDENTITY="${CODESIGN_IDENTITY:--}"
+fi
 MIN_MACOS=14.0
 MACOS_SDK="$(xcrun --sdk macosx --show-sdk-version)"
 if [ "${MACOS_SDK%%.*}" -lt 26 ]; then
@@ -54,14 +66,16 @@ fi
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 mkdir -p "$APP/Contents/Library/LaunchAgents"
-cp app/Resources/LaunchAgents/co.kwon.evergreen.schedule.plist "$APP/Contents/Library/LaunchAgents/"
+AGENT="$APP/Contents/Library/LaunchAgents/$BUNDLE_ID.schedule.plist"
+cp app/Resources/LaunchAgents/co.kwon.evergreen.schedule.plist "$AGENT"
+plutil -replace Label -string "$BUNDLE_ID.schedule" "$AGENT"
 cp "$BIN_DIR/EvergreenApp" "$APP/Contents/MacOS/Evergreen"
 cp "$BIN_DIR/evergreen" "$APP/Contents/Helpers/evergreen"
 ln -s evergreen "$APP/Contents/Helpers/daybreak"
 cp "$BIN_DIR/evergreen-store-installer" "$APP/Contents/Helpers/evergreen-store-installer"
 cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
-    "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
+    "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$BUNDLE_ID"
 YEAR="$(date +%Y)"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -69,12 +83,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
-    <key>CFBundleDisplayName</key><string>Evergreen</string>
+    <key>CFBundleDisplayName</key><string>$NAME</string>
     <key>CFBundleExecutable</key><string>Evergreen</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundleIdentifier</key><string>co.kwon.evergreen</string>
+    <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-    <key>CFBundleName</key><string>Evergreen</string>
+    <key>CFBundleName</key><string>$NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
@@ -88,7 +102,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-if [ -n "${SPARKLE_FEED_URL:-}" ]; then
+if [ "$NAME" = Evergreen ] && [ -n "${SPARKLE_FEED_URL:-}" ]; then
     case "$SPARKLE_FEED_URL" in
         https://*) ;;
         *) printf 'error: SPARKLE_FEED_URL must use HTTPS\n' >&2; exit 1 ;;
@@ -111,14 +125,19 @@ if [ "$IDENTITY" = "-" ]; then
 else
     set -- --force --options runtime --timestamp --sign "$IDENTITY"
 fi
-codesign "$@" --identifier co.kwon.evergreen.cli "$APP/Contents/Helpers/evergreen"
-codesign "$@" --identifier co.kwon.evergreen.store-installer "$APP/Contents/Helpers/evergreen-store-installer"
+codesign "$@" --identifier "$BUNDLE_ID.cli" "$APP/Contents/Helpers/evergreen"
+codesign "$@" --identifier "$BUNDLE_ID.store-installer" "$APP/Contents/Helpers/evergreen-store-installer"
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
 for binary in "$APP/Contents/MacOS/Evergreen" "$APP/Contents/Helpers/evergreen" "$APP/Contents/Helpers/evergreen-store-installer"; do
     printf '%s: %s\n' "$(basename "$binary")" "$(lipo -archs "$binary")"
 done
+
+if [ "$NAME" = "Evergreen Dev" ]; then
+    printf 'Built %s (version %s, signed: ad-hoc)\n' "$APP" "$VERSION"
+    exit 0
+fi
 
 mkdir -p "$DIST"
 ZIP="$DIST/Evergreen-$VERSION.zip"

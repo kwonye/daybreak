@@ -121,7 +121,7 @@ jobs:
         if: steps.version.outputs.version != ''
         env:
           SPARKLE_FEED_URL: ${{ steps.version.outputs.publish == 'true' && format('{0}/{1}/releases/latest/download/appcast.xml', github.server_url, github.repository) || '' }}
-        run: ./scripts/build-app.sh
+        run: ./scripts/build-app.sh --release
       - name: Verify release bundle and CLI
         if: steps.version.outputs.version != ''
         run: |

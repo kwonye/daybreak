@@ -145,7 +145,7 @@ public enum EvergreenCommandLine {
         var command: NativeEngine.Command?
         var apply = false
         var due = false
-        var config: URL?
+        var config: URL? = AppInfo.isDevelopmentBuild ? ConfigStore.defaultURL : nil
         var state = HistoryStore.defaultStateDirectory
 
         var only: [String] = []

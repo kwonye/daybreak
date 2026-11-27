@@ -11,7 +11,7 @@ Evergreen is a native macOS SwiftUI app with a bundled Swift CLI. Both use the s
 
 ## Develop and verify
 
-- Run `swift test --package-path app` for Swift changes. Run `./scripts/build-app.sh` when changing the app bundle or verifying behavior in the packaged app.
+- Run `swift test --package-path app` for Swift changes. Run `./scripts/build-app.sh` and use `.build/Evergreen Dev.app` for packaged QA alongside the installed app. Pass `--release` for production packaging.
 - Keep existing JSON configuration and CLI automation working. Use an isolated config and state directory for CLI smoke checks, and preserve user settings when working with the installed app.
 - Use the existing updater and verification paths for installs and relaunches. Keep update source details out of user-facing status and action copy. Use disposable fixtures to test actions that affect installed apps.
 - For website tasks, use the Pomerado MCP before opening a browser.

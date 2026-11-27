@@ -154,7 +154,7 @@ final class AppModel {
     let configStore: ConfigStore
     let launchOptions: LaunchOptions
     let loginItem = LoginItemModel()
-    let backgroundUpdates = LoginItemModel(agentPlist: "co.kwon.evergreen.schedule.plist")
+    let backgroundUpdates = LoginItemModel(agentPlist: AppInfo.scheduleAgentPlist)
     private(set) var appUpdater: AppUpdater?
     @ObservationIgnored private(set) lazy var config = ConfigModel(store: configStore, app: self)
     @ObservationIgnored private(set) lazy var updates = UpdatesModel(app: self)
