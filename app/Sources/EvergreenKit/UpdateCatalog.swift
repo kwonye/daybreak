@@ -128,7 +128,6 @@ struct UpdateCatalog: Sendable {
         if let repository = repository(for: app) { return .github(repository) }
         let route = try scopedBackend(for: app)
         guard case .app = route else { return route }
-        if let probe = registry.catalogProbe(for: app) { return .backend(probe) }
         if let override = electronFeeds[app.bundleID] {
             guard let url = override.stringValue, let feed = ElectronUpdateFeed(app: app, manifestURL: url) else { return .app }
             return .electron(feed)
@@ -212,7 +211,7 @@ struct UpdateCatalog: Sendable {
             guard scope != .brew, row.brewPackage == nil, !row.isMacAppStoreApp else { return nil }
             switch route {
             case .publicCatalog, .github, .electron, .vendor: return row
-            case .backend(let backend) where app.processes.isEmpty == false && backend.sparkleProbeFeed == nil:
+            case .backend where !app.processes.isEmpty:
                 return row
             default: return nil
             }
@@ -283,7 +282,7 @@ struct UpdateCatalog: Sendable {
                 }
                 backend = UpdateBackend(kind: .release, process: process, stagedRelease: stagedRelease)
                 check = try backend.check(app)
-            case .backend(var adapter) where adapter.kind != .restart && adapter.kind != .appStore && adapter.sparkleProbeFeed == nil:
+            case .backend(var adapter) where adapter.kind != .restart && adapter.kind != .appStore:
                 adapter.interactiveInstallation = true
                 backend = adapter
                 check = try adapter.check(app, interactiveCatalog: true)

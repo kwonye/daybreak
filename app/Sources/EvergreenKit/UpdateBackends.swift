@@ -32,11 +32,17 @@ struct UpdateBackend: Sendable {
     var checkArguments: [String] = []
     var applyArguments: [String] = []
     var preventVendorQuit = false
-    var sparkleProbeFeed: URL?
+    var sparkleFeed: URL?
     var interactiveInstallation = false
     var stagedRelease: StagedRelease?
 
     var managesLifecycle: Bool { kind == .docker }
+
+    private func sparkleArguments(for app: ManagedApp, mode: String) -> [String] {
+        var arguments = [executable, app.path, mode, "--user-agent-name", "Evergreen"]
+        if let sparkleFeed { arguments += ["--feed-url", sparkleFeed.absoluteString] }
+        return arguments
+    }
 
     func check(_ app: ManagedApp, interactiveCatalog: Bool = false) throws -> UpdateCheck {
         switch kind {
@@ -45,12 +51,8 @@ struct UpdateBackend: Sendable {
         case .restart:
             return UpdateCheck(state: .unknown, detail: "No supported updater configured; restart may apply a staged update")
         case .sparkle:
-            var arguments = [executable, app.path, "--probe", "--user-agent-name", "Evergreen"]
-            if let sparkleProbeFeed { arguments += ["--feed-url", sparkleProbeFeed.absoluteString] }
-            let result = try process.run(arguments, 120)
+            let result = try process.run(sparkleArguments(for: app, mode: "--probe"), 120)
             switch result.exitCode {
-            case 0 where sparkleProbeFeed != nil:
-                return UpdateCheck(state: .available, detail: "Open the app to update.", requiresUserAction: true)
             case 0: return UpdateCheck(state: .available, detail: "Sparkle found an update")
             case 2 where interactiveCatalog:
                 return UpdateCheck(state: .available, detail: "Open the app to review this upgrade.", requiresUserAction: true)
@@ -113,8 +115,7 @@ struct UpdateBackend: Sendable {
             return ("completed", "Installed verified release.")
         case .restart: break
         case .sparkle:
-            guard sparkleProbeFeed == nil else { throw EngineFailure("Open the app to update.") }
-            var arguments = [executable, app.path, "--check-immediately", "--user-agent-name", "Evergreen"]
+            var arguments = sparkleArguments(for: app, mode: "--check-immediately")
             if interactiveInstallation { arguments.append("--interactive") }
             let result = try process.run(arguments, 900)
             switch result.exitCode {
@@ -213,14 +214,16 @@ struct BackendRegistry: Sendable {
             return UpdateBackend(kind: .command, process: process, checkArguments: try argv("check", spec: spec),
                                  applyArguments: try argv("apply", spec: spec))
         }
-        // Dynamic or app-specific feeds need the app's own updater. An explicit
-        // configuration remains available for those bundles.
-        let preferSparkle = !includeBundledSparkle || (casks[app.path] == nil && hasPublicSparkleFeed(app))
-        if kind == "sparkle" || (automatic && preferSparkle && app.metadata.hints.contains("sparkle") && sparkleCLI != nil) {
-            guard let command = executable ?? sparkleCLI, isFile(command) else {
-                throw EngineFailure("Official Sparkle CLI not configured or missing")
+        if kind == "sparkle" || (automatic && app.metadata.hints.contains("sparkle") && sparkleCLI != nil
+                                 && (!includeBundledSparkle || casks[app.path] == nil)) {
+            let publicFeed = hasPublicSparkleFeed(app)
+            let feed = publicFeed ? nil : knownSparkleFeed(for: app)
+            if kind == "sparkle" || !includeBundledSparkle || publicFeed || feed != nil {
+                guard let command = executable ?? sparkleCLI, isFile(command) else {
+                    throw EngineFailure("Official Sparkle CLI not configured or missing")
+                }
+                return UpdateBackend(kind: .sparkle, process: process, executable: command, sparkleFeed: feed)
             }
-            return UpdateBackend(kind: .sparkle, process: process, executable: command)
         }
         if kind == "homebrew" || (automatic && casks[app.path] != nil) {
             guard let brew, let token = casks[app.path],
@@ -261,12 +264,10 @@ struct BackendRegistry: Sendable {
         return UpdateBackend(kind: .restart, process: process)
     }
 
-    func catalogProbe(for app: ManagedApp) -> UpdateBackend? {
+    private func knownSparkleFeed(for app: ManagedApp) -> URL? {
         guard app.bundleID == "com.openai.codex", app.metadata.hints.contains("sparkle"),
-              let executable = sparkleCLI, isFile(executable),
-              let architectures = Bundle(path: app.path)?.executableArchitectures,
-              let feed = Self.chatGPTFeed(architectures: architectures) else { return nil }
-        return UpdateBackend(kind: .sparkle, process: process, executable: executable, sparkleProbeFeed: feed)
+              let architectures = Bundle(path: app.path)?.executableArchitectures else { return nil }
+        return Self.chatGPTFeed(architectures: architectures)
     }
 
     // ChatGPT chooses its feed in code. Use the published feeds for its installed architectures.

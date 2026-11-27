@@ -37,20 +37,32 @@ struct UpdateCatalogTests {
         #expect(BackendRegistry.chatGPTFeed(architectures: []) == nil)
     }
 
-    @Test(arguments: [Int32(0), Int32(4)])
-    func catalogFeedOverridesAreCheckOnly(exitCode: Int32) throws {
-        let app = sample(id: "com.openai.codex", path: "/Applications/ChatGPT.app", hints: ["sparkle"])
-        let feed = try #require(BackendRegistry.chatGPTFeed(architectures: [NSNumber(value: NSBundleExecutableArchitectureARM64)]))
+    @Test(arguments: [Int32(0), 2, 4])
+    func sparkleFeedOverridePreservesProbeOutcome(exitCode: Int32) throws {
+        let app = sample()
+        let feed = try #require(URL(string: "https://example.com/appcast.xml"))
         let process = UpdaterProcess { arguments, _ in
             #expect(arguments == ["/sparkle", app.path, "--probe", "--user-agent-name", "Evergreen",
-                                 "--feed-url", feed.absoluteString])
-            return ProcessOutput(exitCode: exitCode, stdout: Data(), stderr: Data())
+                                  "--feed-url", feed.absoluteString])
+            return processOutput(code: exitCode)
         }
-        let backend = UpdateBackend(kind: .sparkle, process: process, executable: "/sparkle", sparkleProbeFeed: feed)
+        let backend = UpdateBackend(kind: .sparkle, process: process, executable: "/sparkle", sparkleFeed: feed)
         let result = try backend.check(app, interactiveCatalog: true)
-        #expect(result.state == (exitCode == 0 ? .available : .current))
-        #expect(result.requiresUserAction == (exitCode == 0))
-        #expect(throws: EngineFailure.self) { try backend.apply(app) }
+        #expect(result.state == (exitCode == 4 ? .current : .available))
+        #expect(result.requiresUserAction == (exitCode == 2))
+    }
+
+    @Test func sparkleInstallsFromTheSelectedFeed() throws {
+        let app = sample()
+        let feed = try #require(URL(string: "https://example.com/appcast.xml"))
+        let process = UpdaterProcess { arguments, _ in
+            #expect(arguments == ["/sparkle", app.path, "--check-immediately", "--user-agent-name", "Evergreen",
+                                  "--feed-url", feed.absoluteString, "--interactive"])
+            return processOutput(code: 0)
+        }
+        let backend = UpdateBackend(kind: .sparkle, process: process, executable: "/sparkle",
+                                    sparkleFeed: feed, interactiveInstallation: true)
+        #expect(try backend.apply(app)?.outcome == "completed")
     }
 
     @Test func publicCaskRequiresOneMatchingAppAndBundleID() throws {

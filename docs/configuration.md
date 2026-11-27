@@ -43,7 +43,7 @@ JSON, stored outside the repository. Unknown updater families are never treated 
 
 Only set Docker's flag true after accepting container/VM/Kubernetes interruption. No Docker restart occurs otherwise, even through restart-only fallback.
 
-Sparkle CLI is optional and not installed by Evergreen. Build it from the official Sparkle project per its documentation using a distinct bundle identifier. Merely containing Sparkle does not mean a host's custom updater delegates/feed can be reproduced externally. Do not override feed URLs to make a host work.
+Sparkle CLI is optional and not installed by Evergreen. Build it from the official Sparkle project per its documentation using a distinct bundle identifier. Merely containing Sparkle does not mean a host's custom updater delegates/feed can be reproduced externally. Evergreen uses the bundle’s public feed when available. For ChatGPT, which selects its feed in code, Evergreen uses the published feed for the installed architecture for both checking and installation.
 
 Chrome auto-discovers the existing user updater under `~/Library/Application Support/Google/GoogleUpdater/Current/`. Only one helper is selected; product and existence-checker path must match. You may configure an absolute `executable` for a supported user-scope helper; the corresponding updater must already exist. Do not point this at a system-scope helper.
 
