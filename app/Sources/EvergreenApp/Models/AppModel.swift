@@ -72,6 +72,7 @@ final class AppModel {
         static let hideDock = "hideDockIcon"
         static let selection = "selectedPane"
         static let setupCompleted = "setupCompleted"
+        static let setupPostponed = "setupPostponed"
     }
 
     /// Sidebar selection, persisted across launches (a `--pane` launch argument overrides it).
@@ -109,10 +110,16 @@ final class AppModel {
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var scheduleTask: Task<Void, Never>?
 
+    var hasCompletedSetup: Bool { UserDefaults.standard.bool(forKey: DefaultsKey.setupCompleted) }
+
     var shouldOfferSetup: Bool {
-        !UserDefaults.standard.bool(forKey: DefaultsKey.setupCompleted)
+        !hasCompletedSetup && !UserDefaults.standard.bool(forKey: DefaultsKey.setupPostponed)
             && launchOptions.pane == nil && launchOptions.configPath == nil
             && launchOptions.snapshotDirectory == nil && !launchOptions.openSettings
+    }
+
+    func postponeSetup() {
+        UserDefaults.standard.set(true, forKey: DefaultsKey.setupPostponed)
     }
 
     func completeSetup() {

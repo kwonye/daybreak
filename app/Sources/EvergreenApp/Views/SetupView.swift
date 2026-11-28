@@ -4,88 +4,127 @@ import SwiftUI
 
 struct SetupView: View {
     private enum Step: Int, CaseIterable {
-        case updates, appManagement, schedule, appearance
+        case welcome, routine, permission
 
         var title: String {
             switch self {
-            case .updates: "Welcome to Evergreen"
-            case .appManagement: "Allow app updates"
-            case .schedule: "Pick a good time"
-            case .appearance: "Make Evergreen yours"
+            case .welcome: "Welcome to \(AppInfo.displayName)"
+            case .routine: "Your update routine"
+            case .permission: "Allow app updates in macOS"
             }
         }
 
         var subtitle: String {
             switch self {
-            case .updates: "Choose how you’d like to keep your apps up to date."
-            case .appManagement: "Allow Evergreen to replace installed apps when you update them."
-            case .schedule: "Choose what Evergreen updates and when."
-            case .appearance: "Choose when Evergreen opens and where you’ll find it."
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .updates: "tree"
-            case .appManagement: "lock.shield"
-            case .schedule: "calendar.badge.clock"
-            case .appearance: "menubar.rectangle"
+            case .welcome: "Evergreen checks your Mac apps for updates, installs supported updates, and reopens apps it closed."
+            case .routine: "Choose when Evergreen checks for updates and installs them while you’re signed in."
+            case .permission: "macOS needs your permission before \(AppInfo.displayName) can replace apps in your Applications folder."
             }
         }
     }
 
     let model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @State private var step = Step.updates
+    @State private var step = Step.welcome
     @State private var draft: EngineSettings
     @State private var original: EngineSettings
-    @State private var showMenuBar: Bool
-    @State private var hideDockIcon: Bool
     @State private var startAtLogin: Bool
-    @State private var originalStartAtLogin: Bool
+    @State private var editingSchedule = false
     @State private var error: String?
 
     init(model: AppModel) {
         self.model = model
         let settings = model.config.settings
-        _draft = State(initialValue: settings)
+        let firstSetup = !model.hasCompletedSetup
+        let suggested = firstSetup ? try? model.config.store.load().onboardingSettings(hasHomebrew: model.hasHomebrew) : nil
+        _draft = State(initialValue: suggested ?? settings)
         _original = State(initialValue: settings)
-        _showMenuBar = State(initialValue: model.showMenuBar)
-        _hideDockIcon = State(initialValue: model.hideDockIcon)
-        _startAtLogin = State(initialValue: model.loginItem.isRegistered)
-        _originalStartAtLogin = State(initialValue: model.loginItem.isRegistered)
+        _startAtLogin = State(initialValue: model.loginItem.isRegistered || (firstSetup && model.loginItem.isAvailable))
+    }
+
+    private var headerColors: [Color] {
+        AppInfo.isDevelopmentBuild
+            ? [Color(red: 0.19, green: 0.12, blue: 0.29), Color(red: 0.37, green: 0.25, blue: 0.49)]
+            : [Color(red: 0.07, green: 0.20, blue: 0.17), Color(red: 0.15, green: 0.31, blue: 0.25)]
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Form {
-                switch step {
-                case .updates:
-                    UpdateBehaviorFields(draft: $draft, context: .setup)
-                case .appManagement:
-                    AppManagementFields()
-                case .schedule:
-                    ScheduleFields(draft: $draft, hasHomebrew: model.hasHomebrew, context: .setup)
-                case .appearance:
-                    Section("When you sign in") {
-                        Toggle("Open Evergreen at login", isOn: $startAtLogin)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                        .resizable().frame(width: 52, height: 52)
+                        .accessibilityHidden(true)
+                    Spacer()
+                    HStack(spacing: 4) {
+                        ForEach(Step.allCases, id: \.self) { item in
+                            Capsule()
+                                .fill(.white.opacity(item == step ? 0.95 : 0.35))
+                                .frame(width: item == step ? 23 : 8, height: 4)
+                        }
+                    }
+                    .accessibilityLabel("Step \(step.rawValue + 1) of \(Step.allCases.count)")
+                }
+                Text(step.title)
+                    .font(.system(size: 30, weight: .regular, design: .serif))
+                    .accessibilityAddTraits(.isHeader)
+                Text(step.subtitle)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.86))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.white)
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                ZStack(alignment: .trailing) {
+                    LinearGradient(colors: headerColors, startPoint: .leading, endPoint: .trailing)
+                    GrowthRings()
+                        .frame(width: 185)
+                        .mask(LinearGradient(colors: [.clear, .white], startPoint: .leading, endPoint: .trailing))
+                }
+                .clipped()
+            }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    switch step {
+                    case .welcome:
+                        choice("Install App Store updates here", detail: "You choose each install. macOS may ask for administrator approval.",
+                               icon: "bag", value: $draft.directAppStoreUpdates)
+                        Divider()
+                        choice("Restart apps that are already up to date", detail: "Leave this off to keep current apps running.",
+                               icon: "arrow.clockwise", value: $draft.restartCurrent)
+                    case .routine:
+                        choice("Run scheduled updates", detail: "Evergreen checks at the time you choose while it’s running.",
+                               icon: "calendar", value: $draft.automaticRuns)
+                        if draft.automaticRuns {
+                            DisclosureGroup(isExpanded: $editingSchedule) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    ScheduleTimingFields(draft: $draft, hasHomebrew: model.hasHomebrew)
+                                }
+                                .padding(.top, 8)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Edit schedule").fontWeight(.medium)
+                                    Text(scheduleSummary).font(.callout).foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.leading, 36)
+                        }
+                        Divider()
+                        choice("Open \(AppInfo.displayName) at login", detail: "Start automatically when you sign in to your Mac.",
+                               icon: "power", value: $startAtLogin)
                             .disabled(!model.loginItem.isAvailable)
                             .accessibilityIdentifier("setup.startAtLogin")
-                    }
-                    Section {
-                        Toggle("Keep Evergreen in the menu bar", isOn: $showMenuBar)
-                            .disabled(hideDockIcon)
-                        Toggle("Hide the Dock icon", isOn: $hideDockIcon)
-                            .onChange(of: hideDockIcon) { if hideDockIcon { showMenuBar = true } }
-                    } header: {
-                        Text("Where to find Evergreen")
-                    } footer: {
-                        Text("With the Dock icon hidden, you can open Evergreen from the menu bar.")
+                    case .permission:
+                        AppManagementInstructions()
                     }
                 }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .formStyle(.grouped)
+            .id(step)
             if let error {
                 Label(error, systemImage: "exclamationmark.circle")
                     .foregroundStyle(.red)
@@ -93,79 +132,79 @@ struct SetupView: View {
                     .padding(.bottom, 12)
             }
             Divider()
-            footer
+            HStack {
+                Button("Not Now") {
+                    model.postponeSetup()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Spacer()
+                if step != .welcome {
+                    Button("Back") {
+                        step = Step(rawValue: step.rawValue - 1) ?? .welcome
+                        error = nil
+                    }
+                }
+                Button(step == .permission ? "Finish Setup" : "Continue") {
+                    if let next = Step(rawValue: step.rawValue + 1) { step = next }
+                    else { finish() }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
         }
-        .frame(width: 550, height: 510)
+        .frame(width: 550, height: 505)
         .interactiveDismissDisabled()
         .accessibilityIdentifier("setup.sheet")
     }
 
-    private var header: some View {
-        HStack(spacing: 13) {
-            Image(systemName: step.symbol)
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 48, height: 48)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Step \(step.rawValue + 1) of \(Step.allCases.count)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text(step.title).font(.title2.weight(.semibold))
-                Text(step.subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 22)
-        .padding(.bottom, 12)
+    private var scheduleSummary: String {
+        let clock = Date(timeIntervalSince1970: Double(draft.hour * 3600 + draft.minute * 60))
+        var format = Date.FormatStyle(date: .omitted, time: .shortened)
+        format.timeZone = .gmt
+        let cadence = draft.cadence == .weekly ? draft.weekday.title : draft.cadence.title
+        let time = clock.formatted(format)
+        return "\(draft.scheduleScope.title) · \(cadence) · \(time) (\(draft.timezone))"
     }
 
-    private var footer: some View {
-        HStack {
-            Button("Not Now") {
-                model.completeSetup()
-                dismiss()
-            }
-            .keyboardShortcut(.cancelAction)
-            Spacer()
-            if step != .updates {
-                Button("Back") {
-                    step = Step(rawValue: step.rawValue - 1) ?? .updates
-                    error = nil
+    private func choice(_ title: String, detail: String, icon: String, value: Binding<Bool>) -> some View {
+        Toggle(isOn: value) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(detail).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                Spacer(minLength: 8)
             }
-            Button(step == .appearance ? "Done" : "Continue") {
-                if let next = Step(rawValue: step.rawValue + 1) {
-                    step = next
-                } else {
-                    finish()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
         }
-        .padding(20)
+        .toggleStyle(.switch)
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 
     private func finish() {
+        let wasRegistered = model.loginItem.isRegistered
+        do { try model.loginItem.setRegistered(startAtLogin) }
+        catch {
+            self.error = error.localizedDescription
+            step = .routine
+            return
+        }
         guard model.config.save(settings: draft, original: original) else {
             error = model.config.actionError
             model.config.actionError = nil
+            do { try model.loginItem.setRegistered(wasRegistered) }
+            catch { self.error = [self.error, error.localizedDescription].compactMap { $0 }.joined(separator: "\n") }
             return
         }
-        if startAtLogin != originalStartAtLogin {
-            do { try model.loginItem.setRegistered(startAtLogin) }
-            catch {
-                self.error = error.localizedDescription
-                return
-            }
-        }
-        model.showMenuBar = showMenuBar
-        model.hideDockIcon = hideDockIcon
         model.completeSetup()
         dismiss()
         Task {
@@ -175,47 +214,28 @@ struct SetupView: View {
     }
 }
 
-enum SetupFieldContext {
-    case settings, setup
-}
-
 struct UpdateBehaviorFields: View {
     @Binding var draft: EngineSettings
-    var context: SetupFieldContext = .settings
-
     var body: some View {
         Section {
-            Toggle(context == .setup ? "Install App Store updates here" : "Install Mac App Store updates in Evergreen",
-                   isOn: $draft.directAppStoreUpdates)
+            Toggle("Install Mac App Store updates in \(AppInfo.displayName)", isOn: $draft.directAppStoreUpdates)
         } header: {
             Text("Mac App Store")
         } footer: {
-            if context == .setup {
-                Text("Choose each App Store update from the Updates tab. Your Mac may ask you to approve the install.")
-            } else {
-                Text("macOS may ask for administrator approval. These installs are started individually from Apps.")
-            }
+            Text("macOS may ask for administrator approval. These installs are started individually from Apps.")
         }
         Section {
-            if context == .setup {
-                DisclosureGroup("More restart options") {
-                    restartOptions
-                }
-            } else {
-                restartOptions
-            }
+            restartOptions
         } header: {
-            if context == .settings { Text("Restarts") }
+            Text("Restarts")
         } footer: {
-            Text(context == .setup
-                 ? "Evergreen gives apps a chance to save your work before they close."
-                 : "Evergreen asks apps to quit normally and respects your whitelist.")
+            Text("\(AppInfo.displayName) asks apps to quit normally and respects your whitelist.")
         }
     }
 
     private var restartOptions: some View {
         Group {
-            let timeoutTitle = context == .setup ? "Wait for apps to close" : "Quit timeout"
+            let timeoutTitle = "Quit timeout"
             LabeledContent(timeoutTitle) {
                 HStack {
                     TextField(timeoutTitle, value: $draft.quitTimeoutSeconds, format: .number)
@@ -228,9 +248,9 @@ struct UpdateBehaviorFields: View {
                     Text("seconds (1–600)").foregroundStyle(.secondary)
                 }
             }
-            Toggle(context == .setup ? "Restart apps that are already up to date" : "Restart apps that are already current",
+            Toggle("Restart apps that are already current",
                    isOn: $draft.restartCurrent)
-            Toggle(context == .setup ? "Restart apps Evergreen can’t update" : "Restart apps without a supported updater",
+            Toggle("Restart apps without a supported updater",
                    isOn: $draft.restartUnmanaged)
         }
     }
@@ -239,26 +259,30 @@ struct UpdateBehaviorFields: View {
 struct ScheduleFields: View {
     @Binding var draft: EngineSettings
     let hasHomebrew: Bool
-    var context: SetupFieldContext = .settings
+    var body: some View {
+        Section {
+            Toggle("Run scheduled updates", isOn: $draft.automaticRuns)
+            ScheduleTimingFields(draft: $draft, hasHomebrew: hasHomebrew)
+        } header: {
+            Text("Schedule")
+        } footer: {
+            Text("\(AppInfo.displayName) starts within 30 minutes of the scheduled time. If it misses that window, it reminds you when updates are ready.")
+        }
+    }
+
+}
+
+private struct ScheduleTimingFields: View {
+    @Binding var draft: EngineSettings
+    let hasHomebrew: Bool
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
         return calendar
     }()
 
-    var body: some View {
-        Section {
-            Toggle("Run scheduled updates", isOn: $draft.automaticRuns)
-            if context == .settings || draft.automaticRuns { timingOptions }
-        } header: {
-            Text("Schedule")
-        } footer: {
-            Text("Evergreen starts within 30 minutes of the scheduled time. If it misses that window, it reminds you when updates are ready.")
-        }
-    }
-
     @ViewBuilder
-    private var timingOptions: some View {
+    var body: some View {
         if hasHomebrew {
             Picker("Update", selection: $draft.scheduleScope) {
                 ForEach(ScheduleScope.allCases) {
@@ -280,10 +304,17 @@ struct ScheduleFields: View {
             ScheduleTimePicker(date: time)
                 .fixedSize()
                 .accessibilityLabel("Time")
+                .accessibilityValue(time.wrappedValue.formatted(wallClockFormat))
         }
         LabeledContent("Time zone") {
             TimeZonePicker(selection: $draft.timezone, keep: [draft.timezone])
         }
+    }
+
+    private var wallClockFormat: Date.FormatStyle {
+        var style = Date.FormatStyle(date: .omitted, time: .shortened)
+        style.timeZone = .gmt
+        return style
     }
 
     private var time: Binding<Date> {

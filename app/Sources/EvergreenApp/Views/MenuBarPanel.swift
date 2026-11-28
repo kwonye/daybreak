@@ -1,4 +1,5 @@
 import AppKit
+import EvergreenKit
 import SwiftUI
 
 struct MenuBarPanel: View {
@@ -10,7 +11,7 @@ struct MenuBarPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Label("Evergreen", systemImage: "tree.fill")
+                Label(AppInfo.displayName, systemImage: "tree.fill")
                     .font(.headline)
                 Text(status)
                     .font(.callout)
@@ -19,7 +20,7 @@ struct MenuBarPanel: View {
             }
             Divider()
             VStack(alignment: .leading, spacing: 4) {
-                action("Open Evergreen", icon: "macwindow") { showWindow() }
+                action("Open \(AppInfo.displayName)", icon: "macwindow") { showWindow() }
                     .accessibilityIdentifier("menuBar.open")
                 if let missed = model.scheduler.missed {
                     action("Run Updates Now", icon: "arrow.triangle.2.circlepath") {
@@ -46,7 +47,7 @@ struct MenuBarPanel: View {
                     NSApp.activate()
                 }
                 .accessibilityIdentifier("menuBar.settings")
-                action("Quit Evergreen", icon: "power") { NSApp.terminate(nil) }
+                action("Quit \(AppInfo.displayName)", icon: "power") { NSApp.terminate(nil) }
                     .disabled(model.isApplying)
             }
         }

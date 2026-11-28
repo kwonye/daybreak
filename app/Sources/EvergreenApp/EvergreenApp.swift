@@ -31,6 +31,13 @@ struct EvergreenApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
+    private var menuBarSymbol: String {
+        if AppInfo.isDevelopmentBuild {
+            return model.scheduler.missed == nil ? "hammer" : "hammer.circle.fill"
+        }
+        return model.scheduler.missed == nil ? "tree" : "tree.circle.fill"
+    }
+
     var body: some Scene {
         @Bindable var model = model
         Window(AppInfo.displayName, id: "main") {
@@ -55,7 +62,7 @@ struct EvergreenApp: App {
                     if model.hideDockIcon { model.applyDockPreference() }
                 }
         } label: {
-            Image(systemName: model.scheduler.missed == nil ? "tree" : "tree.circle.fill")
+            Image(systemName: menuBarSymbol)
                 .accessibilityLabel(model.scheduler.missed == nil
                                     ? AppInfo.displayName : "\(AppInfo.displayName), scheduled update missed")
         }

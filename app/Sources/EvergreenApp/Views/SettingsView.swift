@@ -60,7 +60,7 @@ private struct BehaviorSettingsView: View {
             if schedule {
                 ScheduleFields(draft: $draft, hasHomebrew: model.hasHomebrew)
                 Section {
-                    Toggle("Run in background when Evergreen is closed", isOn: Binding(
+                    Toggle("Run in background when \(AppInfo.displayName) is closed", isOn: Binding(
                         get: { model.backgroundUpdates.isRegistered },
                         set: { enabled in
                             do { try model.backgroundUpdates.setRegistered(enabled) }
@@ -114,7 +114,7 @@ private struct BehaviorSettingsView: View {
                         .disabled(!isDirty || !problems.isEmpty || !config.canEdit)
                 }
             } footer: {
-                Text(verbatim: "Evergreen saves these settings to your configuration file.")
+                Text(verbatim: "\(AppInfo.displayName) saves these settings to your configuration file.")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -261,7 +261,7 @@ private struct GeneralSettingsView: View {
         Form {
             Section {
                 LabeledContent("Guided setup") {
-                    Button("Set Up Evergreen…") {
+                    Button("Set Up \(AppInfo.displayName)…") {
                         model.config.reload()
                         showingSetup = true
                     }
@@ -287,11 +287,11 @@ private struct GeneralSettingsView: View {
                 Text("Startup")
             } footer: {
                 Text(model.loginItem.isAvailable
-                     ? "Open Evergreen when you sign in to your Mac."
-                     : "Start at Login is available in the packaged Evergreen app.")
+                     ? "Open \(AppInfo.displayName) when you sign in to your Mac."
+                     : "Start at Login is available in the packaged \(AppInfo.displayName) app.")
             }
             if let updater = model.appUpdater, updater.isAvailable {
-                Section("Evergreen Updates") {
+                Section("\(AppInfo.displayName) Updates") {
                     Toggle("Automatically check for updates", isOn: Binding(
                         get: { updater.automaticallyChecks },
                         set: { enabled in updater.setAutomaticChecks(enabled) }
@@ -301,18 +301,18 @@ private struct GeneralSettingsView: View {
                         set: { enabled in updater.setAutomaticInstallation(enabled) }
                     ))
                     .disabled(!updater.automaticallyChecks)
-                    Button("Check for Evergreen Updates…", action: updater.check)
+                    Button("Check for \(AppInfo.displayName) Updates…", action: updater.check)
                         .disabled(!updater.canCheck || model.isApplying)
                 }
             }
             Section {
-                Toggle("Show Evergreen in the menu bar", isOn: $model.showMenuBar)
+                Toggle("Show \(AppInfo.displayName) in the menu bar", isOn: $model.showMenuBar)
                     .disabled(model.hideDockIcon)
                 Toggle("Hide the Dock icon", isOn: $model.hideDockIcon)
             } header: {
                 Text("Menu Bar and Dock")
             } footer: {
-                Text("With the Dock icon hidden, open Evergreen from the menu bar.")
+                Text("With the Dock icon hidden, open \(AppInfo.displayName) from the menu bar.")
             }
             Section {
                 PathField(title: "State folder", prompt: "Default",

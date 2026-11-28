@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Draws the Evergreen app icon with CoreGraphics and packs it into an .icns with iconutil.
 //
-//   swift scripts/make-icon.swift app/Resources/AppIcon.icns [preview-512.png]
+//   swift scripts/make-icon.swift [--dev] OUTPUT.icns [preview-512.png]
 //
 // Follows the macOS icon grid: 1024 pt canvas, 824 pt continuous-corner body centred with a
 // 100 pt margin, and a soft drop shadow below the body. Every size is rendered from vectors
@@ -12,13 +12,21 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-let arguments = CommandLine.arguments
-guard arguments.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: make-icon.swift OUTPUT.icns [PREVIEW.png]\n".utf8))
+var arguments = CommandLine.arguments.dropFirst()
+let development = arguments.first == "--dev"
+if development { arguments = arguments.dropFirst() }
+guard (1...2).contains(arguments.count), let filename = arguments.first else {
+    FileHandle.standardError.write(Data("usage: make-icon.swift [--dev] OUTPUT.icns [PREVIEW.png]\n".utf8))
     exit(2)
 }
-let output = URL(fileURLWithPath: arguments[1])
-let preview = arguments.count >= 3 ? URL(fileURLWithPath: arguments[2]) : nil
+let output = URL(fileURLWithPath: filename)
+let preview = arguments.dropFirst().first.map { URL(fileURLWithPath: $0) }
+
+let background: (light: UInt32, middle: UInt32, dark: UInt32) = development
+    ? (0x8460B5, 0x503477, 0x301D51) : (0x2F7557, 0x164735, 0x102F25)
+let needles: (light: UInt32, middle: UInt32, dark: UInt32) = development
+    ? (0xFCF5FF, 0xE4CAFF, 0xBC9CE7) : (0xF3FFDC, 0xC3ECAB, 0x82C69A)
+let glowColor: UInt32 = development ? 0xE3BFFF : 0xB2EBAC
 
 let space = CGColorSpace(name: CGColorSpace.displayP3)!
 
@@ -65,7 +73,7 @@ func render(pixels: Int) -> CGImage {
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12 * unit), blur: 28 * unit, color: color(0x000000, 0.35))
     ctx.addPath(shape)
-    ctx.setFillColor(color(0x102F25))
+    ctx.setFillColor(color(background.dark))
     ctx.fillPath()
     ctx.restoreGState()
 
@@ -74,13 +82,13 @@ func render(pixels: Int) -> CGImage {
     ctx.clip()
 
     ctx.drawLinearGradient(
-        gradient([(0x2F7557, 0, 1), (0x164735, 0.55, 1), (0x102F25, 1, 1)]),
+        gradient([(background.light, 0, 1), (background.middle, 0.55, 1), (background.dark, 1, 1)]),
         start: CGPoint(x: body.minX, y: body.maxY), end: CGPoint(x: body.maxX, y: body.minY), options: [])
 
     if pixels >= 64 {
         let glow = CGPoint(x: body.midX, y: body.maxY - body.height * 0.15)
         ctx.drawRadialGradient(
-            gradient([(0xB2EBAC, 0, 0.23), (0xB2EBAC, 1, 0)]),
+            gradient([(glowColor, 0, 0.23), (glowColor, 1, 0)]),
             startCenter: glow, startRadius: 0, endCenter: glow, endRadius: body.width * 0.74, options: [])
     }
 
@@ -102,7 +110,7 @@ func render(pixels: Int) -> CGImage {
     ctx.addPath(tree)
     ctx.clip()
     ctx.drawLinearGradient(
-        gradient([(0xF3FFDC, 0, 1), (0xC3ECAB, 0.57, 1), (0x82C69A, 1, 1)]),
+        gradient([(needles.light, 0, 1), (needles.middle, 0.57, 1), (needles.dark, 1, 1)]),
         start: point(0, 0.82), end: point(0, 0.16), options: [])
     ctx.restoreGState()
     ctx.restoreGState()

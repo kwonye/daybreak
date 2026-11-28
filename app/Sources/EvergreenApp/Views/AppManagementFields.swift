@@ -1,37 +1,48 @@
 import AppKit
+import EvergreenKit
 import SwiftUI
 
 struct AppManagementFields: View {
+    var body: some View {
+        Section("App Management") { AppManagementInstructions() }
+    }
+}
+
+struct AppManagementInstructions: View {
     @State private var settingsCouldNotOpen = false
     private let appURL = Bundle.main.bundleURL
 
     var body: some View {
-        Section("App Management") {
-            Button("Open App Management") {
-                let pane = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AppBundles")!
-                settingsCouldNotOpen = !NSWorkspace.shared.open(pane)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("1. Open App Management").font(.headline)
+                Text("In System Settings, go to Privacy & Security → App Management.")
+                    .foregroundStyle(.secondary)
+                Button("Open App Management…") {
+                    let pane = URL(string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AppBundles")!
+                    settingsCouldNotOpen = !NSWorkspace.shared.open(pane)
+                }
+                .accessibilityIdentifier("appManagement.open")
             }
-            .accessibilityIdentifier("appManagement.open")
-
-            HStack(spacing: 12) {
-                AppBundleDragIcon(url: appURL)
-                    .frame(width: 44, height: 44)
-                    .accessibilityLabel("Drag Evergreen into App Management")
-                    .accessibilityIdentifier("appManagement.drag")
-                    .help("Drag this app into the App Management list")
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Evergreen").fontWeight(.medium)
-                    Text("Drag this icon into the App Management list, then turn on Evergreen.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("2. Turn on \(AppInfo.displayName)").font(.headline)
+                Text("If it’s missing, drag the app icon below into the list, or click + and select \(AppInfo.displayName). Approve the change if macOS asks.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    AppBundleDragIcon(url: appURL)
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("Drag \(AppInfo.displayName) into App Management")
+                        .accessibilityIdentifier("appManagement.drag")
+                    Text("Drag this icon").font(.callout)
+                    Image(systemName: "arrow.up.right").foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button("Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([appURL])
-                }
+                .padding(.horizontal, 10)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .alert("Couldn’t Open App Management", isPresented: $settingsCouldNotOpen) {
             Button("OK", role: .cancel) {}
         } message: {

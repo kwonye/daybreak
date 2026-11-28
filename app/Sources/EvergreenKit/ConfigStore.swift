@@ -242,6 +242,17 @@ public struct ConfigDocument: Sendable, Equatable {
         return settings
     }
 
+    /// Suggestions presented for confirmation on first setup. Explicit configuration takes precedence.
+    public func onboardingSettings(hasHomebrew: Bool, timezone: TimeZone = .current) throws -> EngineSettings {
+        var draft = try settings()
+        if root["restart_current"] == nil { draft.restartCurrent = false }
+        if root["direct_app_store_updates"] == nil { draft.directAppStoreUpdates = true }
+        if root["automatic_runs"] == nil { draft.automaticRuns = true }
+        if root["schedule_scope"] == nil { draft.scheduleScope = hasHomebrew ? .both : .apps }
+        if root["timezone"] == nil { draft.timezone = timezone.identifier }
+        return draft
+    }
+
     /// Writes only the settings whose value differs from `original`, so untouched defaults are not
     /// materialised into the file.
     public mutating func applySettings(_ settings: EngineSettings, original: EngineSettings) throws {

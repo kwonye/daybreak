@@ -15,8 +15,8 @@ set -eu
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 case "${1:-}" in
-    '') NAME="Evergreen Dev"; BUNDLE_ID=co.kwon.evergreen.dev ;;
-    --release) NAME=Evergreen; BUNDLE_ID=co.kwon.evergreen ;;
+    '') NAME="Evergreen Dev"; BUNDLE_ID=co.kwon.evergreen.dev; ICON=AppIconDev ;;
+    --release) NAME=Evergreen; BUNDLE_ID=co.kwon.evergreen; ICON=AppIcon ;;
     *) printf 'usage: %s [--release]\n' "$0" >&2; exit 2 ;;
 esac
 if [ "$#" -gt 1 ]; then
@@ -69,11 +69,13 @@ mkdir -p "$APP/Contents/Library/LaunchAgents"
 AGENT="$APP/Contents/Library/LaunchAgents/$BUNDLE_ID.schedule.plist"
 cp app/Resources/LaunchAgents/co.kwon.evergreen.schedule.plist "$AGENT"
 plutil -replace Label -string "$BUNDLE_ID.schedule" "$AGENT"
-cp "$BIN_DIR/EvergreenApp" "$APP/Contents/MacOS/Evergreen"
+plutil -replace BundleProgram -string "Contents/MacOS/$NAME" "$AGENT"
+/usr/libexec/PlistBuddy -c "Set :ProgramArguments:0 $NAME" "$AGENT"
+cp "$BIN_DIR/EvergreenApp" "$APP/Contents/MacOS/$NAME"
 cp "$BIN_DIR/evergreen" "$APP/Contents/Helpers/evergreen"
 ln -s evergreen "$APP/Contents/Helpers/daybreak"
 cp "$BIN_DIR/evergreen-store-installer" "$APP/Contents/Helpers/evergreen-store-installer"
-cp app/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp "app/Resources/$ICON.icns" "$APP/Contents/Resources/$ICON.icns"
 sh scripts/build-sparkle.sh "$ROOT/.build/sparkle" "$ARCHS" "$MIN_MACOS" "$IDENTITY" \
     "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$BUNDLE_ID"
 YEAR="$(date +%Y)"
@@ -84,8 +86,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleDisplayName</key><string>$NAME</string>
-    <key>CFBundleExecutable</key><string>Evergreen</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleExecutable</key><string>$NAME</string>
+    <key>CFBundleIconFile</key><string>$ICON</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>$NAME</string>
@@ -130,7 +132,7 @@ codesign "$@" --identifier "$BUNDLE_ID.store-installer" "$APP/Contents/Helpers/e
 codesign "$@" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
-for binary in "$APP/Contents/MacOS/Evergreen" "$APP/Contents/Helpers/evergreen" "$APP/Contents/Helpers/evergreen-store-installer"; do
+for binary in "$APP/Contents/MacOS/$NAME" "$APP/Contents/Helpers/evergreen" "$APP/Contents/Helpers/evergreen-store-installer"; do
     printf '%s: %s\n' "$(basename "$binary")" "$(lipo -archs "$binary")"
 done
 

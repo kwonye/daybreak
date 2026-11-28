@@ -130,6 +130,27 @@ import Testing
         #expect(document.root["quit_timeout_seconds"] == .int(60))
     }
 
+    @Test(arguments: [false, true]) func firstSetupOffersReviewableDefaults(hasHomebrew: Bool) throws {
+        var document = ConfigDocument()
+        let original = try document.settings()
+        let draft = try document.onboardingSettings(hasHomebrew: hasHomebrew, timezone: .gmt)
+        #expect(!draft.restartCurrent && draft.directAppStoreUpdates && draft.automaticRuns)
+        #expect(draft.scheduleScope == (hasHomebrew ? .both : .apps))
+        #expect(draft.timezone == TimeZone.gmt.identifier)
+        #expect(document.root.isEmpty)
+        try document.applySettings(draft, original: original)
+        #expect(try document.settings() == draft)
+    }
+
+    @Test func firstSetupHonorsExplicitChoices() throws {
+        let document = ConfigDocument(root: [
+            "automatic_runs": .bool(false), "direct_app_store_updates": .bool(false),
+            "restart_current": .bool(true), "schedule_scope": .string("apps"),
+            "timezone": .string("Europe/Paris")
+        ])
+        #expect(try document.onboardingSettings(hasHomebrew: true) == document.settings())
+    }
+
     @Test func invalidSettingsAreRejected() throws {
         var document = ConfigDocument()
         var settings = EngineSettings()
